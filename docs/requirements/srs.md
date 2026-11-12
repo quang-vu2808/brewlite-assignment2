@@ -1,4 +1,4 @@
-# TASK 1.2 – ĐẶC TẢ YÊU CẦU PHẦN MỀM (SRS RÚT GỌN)
+# TASK 1.2 – ĐẶC TẢ YÊU CẦU PHẦN MỀM
 
 **Dự án:** BrewLite – Ứng dụng đặt và thanh toán đồ uống không dùng tiền mặt  
 **Học phần:** Công nghệ Phần mềm – Trường Đại học Sài Gòn  
