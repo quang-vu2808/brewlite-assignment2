@@ -25,8 +25,8 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 |---|---|
 | Mã / tên | UC-18 – Đặt và thanh toán đơn hàng |
 | Actor chính | Khách hàng (Customer, ST-01) |
-| Actor phụ | Không có actor ngoài trong implementation được đối chiếu. ST-06 là vai trò dịch vụ thanh toán trong yêu cầu; code dùng `MockPaymentProvider` nội bộ NestJS. |
-| Các bộ phận nội bộ, không phải Actor | Next.js UI, NestJS API, PostgreSQL và `MockPaymentProvider`; các thành phần thuộc ranh giới BrewLite |
+| Actor phụ | Mock Payment Service (ST-06), hệ thống ngoài nhận yêu cầu và trả kết quả giả lập |
+| Các bộ phận nội bộ, không phải Actor | Next.js UI, NestJS API, PostgreSQL; các thành phần thuộc ranh giới BrewLite |
 | Trigger | Khách nhấn “Tiếp tục đặt hàng/Thanh toán” từ giỏ hàng đang hiển thị |
 | Tần suất | Mỗi lần khách bắt đầu một lượt checkout; không ấn định tần suất sử dụng |
 | Phạm vi Task 1.1 | IS-03 đến IS-09; không bao gồm OS-01 (tiền thật) hoặc EX-01 (giao diện Barista) |
@@ -35,7 +35,7 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 ## 3. Tiền điều kiện (Preconditions)
 
 - **PRE-01:** Khách có giỏ hàng từ UC-03; tại bước checkout, hệ thống còn phải xác thực lại tính hợp lệ, không tin số tiền do client gửi.
-- **PRE-02:** Danh mục menu hiện được khai báo trong `ProductsService`; công thức/nguyên liệu/tồn kho và khuyến mãi dùng PostgreSQL. `MockPaymentProvider` được cấu hình trong NestJS để mô phỏng thành công/thất bại.
+- **PRE-02:** Dữ liệu menu, cấu hình giá và tồn kho tồn tại trong cơ sở dữ liệu; Mock Payment Service đã được cấu hình để mô phỏng thành công/thất bại.
 - **PRE-03:** Đặt đơn yêu cầu phiên đăng nhập/JWT hợp lệ. Nếu chưa có hoặc token sai/hết hạn, thực hiện AF-02 trước khi tạo đơn; vì vậy đây là điều kiện phải thỏa **tại bước M4**, không phải điều kiện để mở màn hình giỏ.
 - **PRE-04:** Mỗi yêu cầu thanh toán gửi `Idempotency-Key` theo cơ chế FR-16; cách định nghĩa phạm vi và lưu trữ key là đề xuất cần phê duyệt tại Mục 12.
 
@@ -59,14 +59,14 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 | M2 | Customer | Xem lại giỏ và xác nhận muốn đặt các mặt hàng. | Kiểm tra giỏ không trống, định dạng, sản phẩm/tùy chọn còn hợp lệ; tính lại giá và tổng trên dữ liệu tin cậy; lỗi chuyển AF-01/EF-01. |
 | M3 | Customer | Không nhập mã khuyến mãi (hoặc áp dụng mã theo AF-05). | Hiển thị tổng thanh toán cuối cùng, không âm, để khách xác nhận. |
 | M4 | Customer | Tiếp tục dưới phiên đăng nhập hiện có. | API kiểm tra JWT/quyền của khách; chưa xác thực chuyển AF-02/EF-02. |
-| M5 | Customer | Xác nhận tạo đơn với tổng tiền hiển thị. | Backend bắt đầu transaction; reserve nguyên liệu theo recipe/version thay vì đọc một `Product.stock`; cập nhật có kiểm soát version để ngăn reserve đồng thời vượt tồn; tạo `Order(PENDING)`, `OrderItem` snapshot và consumption records. Thiếu tồn hoặc xung đột chuyển AF-03/EF-03. |
+| M5 | Customer | Xác nhận tạo đơn với tổng tiền hiển thị. | Backend bắt đầu transaction; kiểm tra tồn kho hiện hành, chống đặt đồng thời bằng optimistic locking; tạo `Order`, `OrderItem` trạng thái `PENDING` và cập nhật/giữ tồn kho nhất quán; commit đồng bộ. Thiếu tồn hoặc xung đột chuyển AF-03/EF-03. |
 | M6 | Customer | Chọn phương thức **Ví** hoặc **Thẻ** giả lập. | Hiển thị hai lựa chọn và số tiền từ đơn đã lưu; không kết nối hệ thống thu tiền thật. |
-| M7 | Customer | Xác nhận thanh toán, gửi yêu cầu có `Idempotency-Key`. | Backend xác thực quyền sở hữu/trạng thái, tính hash từ orderId, method và simulateFailure; tìm Payment theo userId + key. Cùng hash có resultSnapshot thì replay; hash khác thì Conflict. Với key mới, code gọi provider trong DataSource.transaction, sau đó mới lưu Payment/resultSnapshot; không persist trạng thái PROCESSING trước lời gọi. |
-| M8 | Hệ thống (`MockPaymentProvider` nội bộ) | Trả kết quả mock **thành công**. | Backend ghi nhận kết quả và chuyển hợp lệ `PENDING → PAID` theo State Machine trong transaction; không thực hiện thêm lần thanh toán cho cùng key. |
+| M7 | Customer | Xác nhận thanh toán, gửi yêu cầu có `Idempotency-Key`. | Backend xác thực quyền sở hữu đơn, trạng thái hợp lệ, số tiền/phương thức, tra cứu key; chưa có giao dịch trùng thì ghi nhận việc xử lý và gọi Mock Payment Service. Nếu lặp chuyển AF-06/EF-05. |
+| M8 | Mock Payment Service | Trả kết quả mock **thành công**. | Backend ghi nhận kết quả và chuyển hợp lệ `PENDING → PAID` theo State Machine trong transaction; không thực hiện thêm lần thanh toán cho cùng key. |
 | M9 | Hệ thống (nội bộ) | Thực hiện nghiệp vụ sau thanh toán thành công. | Ghi Loyalty theo quy tắc đã duyệt, bảo đảm một đơn không được cộng điểm hai lần; không ghi điểm nếu đơn chưa `PAID`. |
 | M10 | Customer | Xem thông báo kết quả. | Hiển thị mã đơn, tổng tiền, phương thức và trạng thái `PAID`; dữ liệu tra cứu lịch sử/trạng thái đơn đã sẵn sàng. Kết thúc UC-18 thành công. |
 
-**Quy ước theo code:** M5 là transaction nguyên tử tạo đơn và reserve nguyên liệu theo recipe/version. `PaymentsService.pay` hiện mở một `DataSource.transaction` từ kiểm tra key tới khi gọi Mock Payment, ghi Payment/Order và lưu resultSnapshot. Vì vậy transaction DB vẫn mở khi chờ provider; đây là rủi ro về thời gian giữ lock. Tách provider call khỏi transaction là hướng cải tiến, chưa phải hành vi hiện tại.
+**Quy ước:** M5 là một transaction nguyên tử đối với việc tạo đơn và thay đổi tồn kho. M8–M9 là thao tác ghi nhận kết quả thanh toán/điểm có ràng buộc chống lặp. Không giữ transaction cơ sở dữ liệu mở trong lúc chờ lời gọi mạng tới Mock Payment Service; đây là phương án kỹ thuật đề xuất để tránh khóa kéo dài.
 
 ## 6. Luồng thay thế – Alternative Flows (AF)
 
@@ -90,7 +90,7 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 | EF-03 / M5 | Xung đột optimistic locking, transaction lỗi hoặc cập nhật tồn kho không thành công. Rollback toàn bộ M5; không có đơn/thay đổi tồn kho nửa chừng. | Có thể tải dữ liệu mới và thử M5 sau khi kiểm tra lại M2; lỗi kéo dài thì kết thúc và thông báo. |
 | EF-04 / M3 | Mã giảm giá không tồn tại/hết hạn/không đạt điều kiện. Không áp dụng giảm; hệ thống hiển thị lý do, không tự ý tính giá có giảm. | Khách sửa mã, bỏ mã rồi quay M3, hoặc hủy checkout. |
 | EF-05 / M7 | **Cùng key nhưng payload khác** (đổi đơn, tiền hoặc phương thức). Đề xuất trả lỗi xung đột, không thực hiện yêu cầu thứ hai. | Dừng yêu cầu lỗi; muốn thanh toán nội dung mới phải có thao tác hợp lệ và key mới. |
-| EF-06 / M7–M8 | Nếu provider timeout/throw, code hiện không ghi Payment `UNKNOWN` hay resultSnapshot; transaction có thể rollback dù provider đã nhận request. | Đây là hạn chế hiện tại. Đối soát timeout theo cùng key là yêu cầu cải tiến, chưa được implementation hỗ trợ. |
+| EF-06 / M7–M8 | Mock timeout/mất kết nối hoặc kết quả không xác định. Không đoán `PAID`, không ghi Loyalty; trạng thái thanh toán cần được kiểm tra bằng cùng key trước khi thử yêu cầu mới. | Thông báo đang xác minh; đối soát kết quả cũ, rồi hoàn tất M8–M10 hoặc AF-07. Cơ chế timeout/đối soát là **đề xuất cần nhóm chốt**. |
 | EF-07 / M8–M9 | Lưu kết quả hoặc ghi Loyalty gặp lỗi. Không gọi mock thêm bằng key mới để “sửa”; lưu/truy hồi idempotent và thử lại công việc hậu thanh toán an toàn, bảo đảm không cộng điểm hai lần. | Chỉ báo `PAID` khi kết quả thanh toán đã được ghi xác nhận; phần điểm lỗi được khôi phục theo cơ chế nhất quán cần chốt ở thiết kế; ghi nhận sự cố. |
 
 ## 8. Quy tắc nghiệp vụ – Business Rules
@@ -101,9 +101,9 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 | BR-02 | Tạo đơn và cập nhật/giữ tồn kho là transaction nguyên tử; dùng optimistic locking và không bán vượt tồn khi nhiều yêu cầu đồng thời. | **Bắt buộc:** đề gốc Task 10, Assignment 2 Task 2.2; FR-17. |
 | BR-03 | Trạng thái thành công `PENDING → PAID → PREPARING → READY → COMPLETED`; nhánh thất bại `PENDING → PAYMENT_FAILED`, có thể thử lại theo sơ đồ; chuyển trái phép bị chặn. | **Bắt buộc:** đề gốc Task 10; FR-15. Quy tắc `PAYMENT_FAILED → PENDING` trước khi retry dựa vào sơ đồ đề gốc. |
 | BR-04 | Thanh toán chỉ qua Mock Payment Service, phương thức Ví/Thẻ; không có giao dịch tiền thật. | **Bắt buộc:** đề gốc/Assignment 2; FR-10, FR-11; OS-01. |
-| BR-05 | Code scope key theo user; cùng key/hash có resultSnapshot thì replay, payload khác trả Conflict. Unique index bảo vệ `(user_id, idempotency_key)`. Chưa persist trạng thái PROCESSING trước provider call. | Phản ánh implementation; timeout/reconciliation và response contract vẫn cần quyết định. |
+| BR-05 | Xử lý Idempotency-Key: cùng key/cùng payload cho cùng thao tác chỉ có một kết quả; cùng key/payload khác bị từ chối; ràng buộc uniqueness và lưu trạng thái xử lý ở Backend. | Ngăn trùng là **bắt buộc** (FR-16); phạm vi key, kiểu phản hồi, thời hạn lưu là **đề xuất**. |
 | BR-06 | Khuyến mãi chỉ áp dụng khi hợp lệ; tổng sau giảm không âm; mã không hợp lệ không được tính giảm. | FR-18 **bắt buộc**; công thức `BREW10` giảm 10%, tối đa 30.000đ là **đề xuất SRS Mục 8**. |
-| BR-07 | Chỉ cộng Loyalty khi thanh toán thành công và đơn chuyển `PAID`; cùng đơn chỉ được cộng một lần. | FR-19 **bắt buộc**; code hiện cộng `floor(totalAmount / 1000)` điểm; chính sách này cần PO xác nhận. |
+| BR-07 | Chỉ cộng Loyalty khi thanh toán thành công và đơn chuyển `PAID`; cùng đơn chỉ được cộng một lần. | FR-19 **bắt buộc**; tỷ lệ 1 điểm/10.000đ thực trả (lấy phần nguyên) là **đề xuất SRS Mục 8**. |
 | BR-08 | Thanh toán thất bại giữ giỏ để khách sửa/thử lại. Phải quy định chính sách tồn kho của đơn thất bại để không trừ vĩnh viễn, và không làm phát sinh bán vượt tồn khi retry. | Giữ giỏ và `PAYMENT_FAILED` theo đề gốc; cơ chế giải phóng/giữ tồn cần **nhóm chốt**. |
 | BR-09 | Yêu cầu thanh toán retry thực sự là thao tác mới với key mới sau khi biết kết quả cũ thất bại; retry mạng cùng thao tác phải tái dùng key cũ. | **Đề xuất cụ thể hóa** để đồng thời đáp ứng FR-15 và FR-16. |
 | BR-10 | Các thao tác sau thanh toán cần xử lý an toàn khi lặp: cùng đơn không cộng điểm thêm dù nhận lại phản hồi hoặc khôi phục lỗi. | FR-16 và FR-19; kỹ thuật thực hiện chi tiết chốt ở thiết kế. |
@@ -148,7 +148,7 @@ UC-18 mô tả nghiệp vụ xuyên suốt từ lúc khách xác nhận giỏ h�
 
 ## 11. Giải thích sơ đồ UC-18
 
-Sơ đồ đặt UC-18 ở giữa System Boundary **BrewLite**; Customer liên kết với UC-18 và các thao tác tùy điều kiện có ý nghĩa ở cấp người dùng. ST-06 là dịch vụ thanh toán trong yêu cầu nghiệp vụ, nhưng code hiện thực nó bằng `MockPaymentProvider` nội bộ NestJS nên sơ đồ implementation-oriented không vẽ thành actor ngoài. UC-18 `<<include>>` UC-06 (Tạo đơn) và UC-07 (Thanh toán giả lập), nhằm thể hiện phạm vi hợp thành; UC-06 `<<include>>` UC-16 (Kiểm tra tồn kho) và UC-07 `<<include>>` UC-17 (Kiểm soát thanh toán lặp). UC-11 Áp dụng mã khuyến mãi `<<extend>>` UC-18 tại điểm mở rộng “khách nhập mã”; không dùng mũi tên để mô tả thứ tự màn hình. Xác thực là tiền điều kiện tại M4, không ép UC-18 `include` Đăng nhập mỗi lần sử dụng. Chuyển trạng thái/loyalty được mô tả bằng quy tắc và luồng trong tài liệu, không biến mọi xử lý kỹ thuật thành actor độc lập.
+Sơ đồ đặt UC-18 ở giữa System Boundary **BrewLite**; Customer liên kết với UC-18 và các thao tác tùy điều kiện có ý nghĩa ở cấp người dùng. Mock Payment Service là Actor ngoài, kết nối đến hành vi xử lý thanh toán mô phỏng. UC-18 `<<include>>` UC-06 (Tạo đơn) và UC-07 (Thanh toán giả lập), nhằm thể hiện phạm vi hợp thành; UC-06 `<<include>>` UC-16 (Kiểm tra tồn kho) và UC-07 `<<include>>` UC-17 (Kiểm soát thanh toán lặp). UC-11 Áp dụng mã khuyến mãi `<<extend>>` UC-18 tại điểm mở rộng “khách nhập mã”; không dùng mũi tên để mô tả thứ tự màn hình. Xác thực là tiền điều kiện tại M4, không ép UC-18 `include` Đăng nhập mỗi lần sử dụng. Chuyển trạng thái/loyalty được mô tả bằng quy tắc và luồng trong tài liệu, không biến mọi xử lý kỹ thuật thành actor độc lập.
 
 ## 12. Quyết định đề xuất cần nhóm xác nhận trước khi khóa tài liệu
 
@@ -156,14 +156,14 @@ Sơ đồ đặt UC-18 ở giữa System Boundary **BrewLite**; Customer liên k
 |---|---|---|
 | UC trọng tâm | Giữ `UC-18` là Use Case tổng hợp UC-06 và UC-07, không đổi mã SRS cũ. | Chờ nhóm duyệt |
 | Khuyến mãi | `BREW10` giảm 10% giá hàng, tối đa 30.000đ; không cho tổng âm; một mã/đơn. | Chờ nhóm duyệt |
-| Loyalty | Code hiện cộng `floor(totalAmount / 1000)` khi Payment SUCCESS và đổi điểm theo 100 VND/điểm lúc tạo đơn. | Đã hiện thực; PO xác nhận rule nếu muốn thay đổi |
+| Loyalty | 1 điểm/10.000đ thực trả, lấy phần nguyên; chỉ cộng một lần khi `PAID`. | Chờ nhóm duyệt |
 | Idempotency-Key | Duy nhất theo chủ tài khoản + thao tác thanh toán; cùng payload trả kết quả cũ, khác payload từ chối (đề xuất HTTP 409); lưu bằng ràng buộc DB. | Chờ nhóm duyệt |
 | Timeout/đối soát | Lưu trạng thái đang xử lý, tra cứu kết quả theo cùng key trước khi cho retry. | Chờ nhóm duyệt |
 | Chính sách tồn kho | Chốt rõ khi M5 cập nhật/giữ tồn và khi `PAYMENT_FAILED`, hủy hoặc timeout thì giải phóng/kiểm tra lại ra sao; bảo đảm không bán vượt tồn hoặc trừ tồn vĩnh viễn. | **Cần chốt trước khi code/test** |
 | Ghi Loyalty lỗi sau PAID | Có cơ chế thử lại idempotent (hoặc outbox) mà không tạo thêm thanh toán/điểm. | Chờ nhóm duyệt |
 | Điều kiện đo NFR | Giữ các đề xuất hiệu năng và viewport ở SRS Mục 8; UC-18 không tự thay ngưỡng NFR. | Chờ nhóm duyệt |
 
-**Điểm cần rà soát chéo:** SRS Mục 6 chỉ nói UC-18 không được lặp thành oval trong **sơ đồ tổng quát**; use-case-checkout.md và sơ đồ trọng tâm đã đặc tả UC-18 riêng. Bản Task 1.1 trên máy nếu đã khác bản lưu trước đây, cần so lại IS/EX/OS trước khi nhóm phê duyệt.
+**Điểm cần rà soát chéo:** SRS Mục 6 nói UC-18 “dành trước, chưa vẽ một oval độc lập” trong **sơ đồ tổng quát**; tài liệu Task 1.3 dùng UC-18 làm oval trung tâm trong **sơ đồ trọng tâm**, không mâu thuẫn. Bản Task 1.1 trên máy nếu đã khác bản lưu trước đây, cần so lại IS/EX/OS trước khi nhóm phê duyệt.
 
 ## 13. Kết luận
 

@@ -80,7 +80,7 @@ Mỗi dòng AC là một tiêu chí kiểm chứng; các ngưỡng/quy tắc b�
 
 ![Use Case Diagram tổng quát](../diagrams/use-case.png)  
 
-Ở mức yêu cầu nghiệp vụ, ST-06 có thể được biểu diễn như actor dịch vụ thanh toán mô phỏng. Trong code BrewLite đầy đủ đang dùng để đối chiếu, `MockPaymentProvider` là adapter nội bộ NestJS, không phải dịch vụ mạng ngoài; sơ đồ checkout implementation-oriented ghi chú ranh giới này. Actor **Nhân viên quầy** chỉ tương tác với use case mở rộng giao diện nhân viên (nét đứt/nhãn Could). **Quản lý cửa hàng/PO, giảng viên và nhóm phát triển** là stakeholder ở Task 1.1, nhưng không mặc nhiên thành actor trong Use Case Diagram khách hàng vì họ không có tương tác trực tiếp đã xác định trong phạm vi MVP; nếu bổ sung giao diện quản trị, Quản lý mới thành actor liên quan.
+Sơ đồ bao gồm khách hàng và dịch vụ thanh toán mô phỏng là actor trực tiếp. Actor **Nhân viên quầy** chỉ tương tác với use case mở rộng giao diện nhân viên (nét đứt/nhãn Could). **Quản lý cửa hàng/PO, giảng viên và nhóm phát triển** là stakeholder ở Task 1.1, nhưng không mặc nhiên thành actor trong Use Case Diagram khách hàng vì họ không có tương tác trực tiếp đã xác định trong phạm vi MVP; nếu bổ sung giao diện quản trị, Quản lý mới thành actor liên quan.
 
 | Actor | Mã tham chiếu Task 1.1 | Tương tác | Phạm vi |
 |---|---|---|---|
@@ -110,9 +110,9 @@ Mỗi dòng AC là một tiêu chí kiểm chứng; các ngưỡng/quy tắc b�
 | UC-16 | Kiểm tra tồn kho | FR-17 | Hành vi hỗ trợ bên trong UC-06 | Must |
 | UC-17 | Xử lý thanh toán idempotent | FR-16 | Hành vi hỗ trợ bên trong UC-07 | Must |
 
-**Hai Use Case hỗ trợ bổ sung để truy vết:** `UC-16 – Kiểm tra tồn kho (FR-17)` và `UC-17 – Xử lý idempotency (FR-16)`. `UC-18` là use case tổng hợp được đặc tả riêng tại `use-case-checkout.md`; sơ đồ tổng quát không lặp oval UC-18 để tránh trùng UC-06/UC-07.
+**Hai Use Case hỗ trợ bổ sung để truy vết:** `UC-16 – Kiểm tra tồn kho (FR-17)` và `UC-17 – Xử lý idempotency (FR-16)`. `UC-18` là mã dành trước cho Task 1.3, chưa phải một chức năng mới của MVP.
 
-**Quy ước UML:** đường liền từ actor đến oval là **association**. `<<include>>` dùng cho hành vi bắt buộc được tái sử dụng trong luồng (ví dụ Đặt đơn → Kiểm tra tồn kho; Thanh toán → Xử lý thanh toán idempotent). `<<extend>>` chỉ dùng cho hành vi điều kiện như Áp dụng khuyến mãi lên Quản lý giỏ/tổng tiền khi khách nhập mã; **không** dùng `extend` chỉ vì một màn hình xuất hiện sau màn hình khác. Các use case xử lý nội bộ được thể hiện để truy vết FR nhưng không giả định chúng là thao tác độc lập của người dùng. Bản sơ đồ không dùng `include` giữa “Đặt đơn” và “Đăng nhập”: xác thực là tiền điều kiện/guard của API, không phải mỗi lần đặt đơn đều thực hiện lại thao tác đăng nhập. `UC-18 – Đặt và thanh toán đơn hàng` đã được đặc tả trong `use-case-checkout.md` và sơ đồ Task 1.3. Đây là Use Case nghiệp vụ tổng hợp UC-06 và UC-07, không thay thế hoặc đánh số lại hai chức năng hiện có; UC-18 chưa được triển khai như một oval độc lập trong sơ đồ tổng quát để tránh lặp diễn giải.
+**Quy ước UML:** đường liền từ actor đến oval là **association**. `<<include>>` dùng cho hành vi bắt buộc được tái sử dụng trong luồng (ví dụ Đặt đơn → Kiểm tra tồn kho; Thanh toán → Xử lý thanh toán idempotent). `<<extend>>` chỉ dùng cho hành vi điều kiện như Áp dụng khuyến mãi lên Quản lý giỏ/tổng tiền khi khách nhập mã; **không** dùng `extend` chỉ vì một màn hình xuất hiện sau màn hình khác. Các use case xử lý nội bộ được thể hiện để truy vết FR nhưng không giả định chúng là thao tác độc lập của người dùng. Bản sơ đồ không dùng `include` giữa “Đặt đơn” và “Đăng nhập”: xác thực là tiền điều kiện/guard của API, không phải mỗi lần đặt đơn đều thực hiện lại thao tác đăng nhập. `UC-18 – Đặt và thanh toán đơn hàng` được **dành riêng (đề xuất)** cho Use Case trọng tâm sẽ đặc tả ở Task 1.3. Đây là Use Case nghiệp vụ tổng hợp UC-06 và UC-07, không thay thế hoặc đánh số lại hai chức năng hiện có; UC-18 chưa được triển khai như một oval độc lập trong sơ đồ tổng quát để tránh lặp diễn giải.
 
 ## 7. Đối chiếu yêu cầu và Use Case
 
@@ -136,11 +136,11 @@ Các giá trị bên dưới là **phương án đề xuất để có thể vi�
 | Chủ đề | Phương án nhóm có thể chọn | Trạng thái |
 |---|---|---|
 | Quy tắc giảm giá FR-18 | Một mã áp dụng một lần cho một đơn; mã mẫu `BREW10` giảm 10% tiền hàng, tối đa 30.000đ; không làm tổng âm; mã sai/hết hiệu lực bị từ chối | Đề xuất, chờ duyệt |
-| Loyalty FR-19 | Code hiện cộng `floor(totalAmount / 1000)` điểm khi thanh toán thành công; đổi điểm khi tạo đơn theo tỷ lệ 100 VND/điểm. | Hiện thực trong code; PO cần xác nhận nếu muốn đổi chính sách. |
+| Loyalty FR-19 | Cộng 1 điểm/10.000đ thực trả (lấy phần nguyên) sau lần chuyển sang `PAID` đầu tiên; không cộng lại với một đơn | Đề xuất, chờ duyệt |
 | Idempotency FR-16 | Ràng buộc key theo người dùng + thao tác thanh toán; cùng key và cùng payload trả lại cùng kết quả; cùng key nhưng khác payload bị từ chối (ví dụ HTTP 409); lưu kết quả giao dịch trong cơ sở dữ liệu | Đề xuất, chờ duyệt |
 | Hiệu năng NFR-01 | Dùng seed cố định; kiểm tra các endpoint chính khi chạy local, 30 lượt/endpoint sau 5 lượt warm-up, mỗi lượt dưới 500 ms theo phép đo phía client; lưu môi trường và kết quả | Đề xuất phương pháp đo, ngưỡng 500 ms lấy từ đề gốc |
 | Giao diện NFR-05 | Kiểm tra viewport 390 × 844 px và 1366 × 768 px; Chrome và Edge phiên bản sẵn có; không bị cắt thao tác cốt lõi | Đề xuất, chờ duyệt |
-| Mã UC trọng tâm | Dùng `UC-18 – Đặt và thanh toán đơn hàng`; đặc tả riêng, giữ nguyên mã UC-01…UC-17 | Đã có trong tài liệu Task 1.3 |
+| Mã UC trọng tâm | Dành `UC-18 – Đặt và thanh toán đơn hàng` cho Task 1.3, không đổi UC-01…UC-17 | Đề xuất, chờ duyệt |
 | Trạng thái đơn và nhân viên | Backend có State Machine và cơ chế kiểm thử; giao diện Barista riêng chỉ là EX-01/FR-20 Could | Phù hợp bản Task 1.1 đang có, chờ nhóm duyệt |
 
 **Lưu ý về đề gốc:** Không có công thức chiết khấu, mức tích điểm, thời hạn lưu Idempotency-Key, cấu hình máy đo hiệu năng hoặc danh sách trình duyệt cụ thể được ấn định trong hai PDF. Vì vậy các giá trị trên không phải trích nguyên văn từ đề.
@@ -154,8 +154,8 @@ Các giá trị bên dưới là **phương án đề xuất để có thể vi�
 4. Chốt cách nhận diện yêu cầu thanh toán lặp (phạm vi lưu `Idempotency-Key`, cùng/nội dung khác), cùng kịch bản test đồng thời.
 5. Chốt các giá trị trong bảng đề xuất để điều kiện đo NFR-01, NFR-05 lặp lại được.
 6. Xác nhận FR-20–FR-22 chỉ là Could, không lấn át các yêu cầu Must. Không thêm giao dịch tiền thật hoặc giao hàng vào MVP.
-7. Rà soát UC-18 tại `use-case-checkout.md`; Task 1.3 đã được đặc tả, các chính sách chưa chốt vẫn cần PO duyệt.
+7. Thống nhất UC-18 là mã dành riêng cho Use Case trọng tâm ở Task 1.3; chưa thực hiện Task 1.3 trong tài liệu này.
 
 ## 9. Kết luận
 
-SRS này bao quát luồng MVP và những yêu cầu nghiệp vụ Backend theo đề gốc, đồng thời giữ rõ ranh giới với phần mở rộng/ngoài phạm vi từ Task 1.1. Sau khi nhóm rà soát các quyết định ở Mục 8, lưu phiên bản đã duyệt cùng sơ đồ nguồn và ảnh kết xuất lên nhánh làm việc; chưa cần tạo Pull Request cho riêng Task 1.2. Task 1.3 đã được đặc tả tại `use-case-checkout.md`; các source/ảnh sơ đồ Task 2 nằm trong `docs/diagrams/`.
+SRS này bao quát luồng MVP và những yêu cầu nghiệp vụ Backend theo đề gốc, đồng thời giữ rõ ranh giới với phần mở rộng/ngoài phạm vi từ Task 1.1. Sau khi nhóm rà soát các quyết định ở Mục 8, lưu phiên bản đã duyệt cùng sơ đồ nguồn và ảnh kết xuất lên nhánh làm việc; chưa cần tạo Pull Request cho riêng Task 1.2. Bước kế tiếp (chỉ khi được yêu cầu) là Task 1.3 – đặc tả một Use Case trọng tâm.

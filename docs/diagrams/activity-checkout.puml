@@ -1,114 +1,112 @@
 @startuml
-title Task 2.1 - Activity Diagram: Đặt và thanh toán BrewLite
-|Khách hàng|
+title BrewLite - Activity Diagram: Dat hang va thanh toan (UC-18)
+skinparam shadowing false
+skinparam backgroundColor white
+skinparam defaultFontSize 16
+skinparam activity {
+  BackgroundColor #F8FAFC
+  BorderColor #42546B
+  DiamondBackgroundColor #FFF4CC
+  DiamondBorderColor #B08900
+  StartColor #2E7D32
+  EndColor #B3261E
+  FontName Arial
+}
+
+|Customer|
 start
-:Xem menu, chọn size/topping;
-:Thêm món vào giỏ;
+:Mo gio hang;
+:Xac nhan gio hang;
+
 |Next.js UI|
-:Gửi POST /orders/preview với JWT;
+:Gui yeu cau checkout;
+
 |NestJS API|
-if (JWT hợp lệ?) then (Có)
-else (Không)
-  :Trả 401 Unauthorized;
-  |Khách hàng|
-  :Đăng nhập/đăng ký;
+:Validate gio hang va tinh lai gia;
+if (Gio hang hop le?) then (Co)
+else (Khong)
+  :Tra loi loi validation;
   |Next.js UI|
-  :Gửi lại preview;
-  |NestJS API|
-endif
-:Validate DTO, tính giá và kiểm tra availability;
-if (Giỏ hợp lệ và đủ nguyên liệu?) then (Có)
-else (Không)
-  :Trả preview với availability không đạt;
-  |Next.js UI|
-  :Hiển thị lý do, giữ giỏ để sửa;
+  :Hien thi loi, giu gio hang;
   stop
 endif
-:Trả preview gồm tổng tiền và availability;
-|Khách hàng|
-:Xác nhận tạo đơn;
-|Next.js UI|
-:Gửi POST /orders với JWT;
+
+|Customer|
+:Nhap ma khuyen mai neu co;
 |NestJS API|
-:Validate và tính lại giá phía server;
-:BEGIN transaction;
-:Reserve nguyên liệu theo công thức/version;
-:Áp promotion, đổi điểm nếu có;
-if (Tạo đơn hợp lệ?) then (Có)
-  :Lưu Order PENDING, OrderItems snapshot;
-  :Lưu consumption và promotion usage;
-  :COMMIT;
-else (Không)
-  :ROLLBACK;
+:Kiem tra ma va tinh lai tong neu hop le;
+
+|NestJS API|
+if (JWT hop le?) then (Co)
+else (Khong)
   |Next.js UI|
-  :Giữ giỏ, hiển thị lỗi;
-  stop
-endif
-|Next.js UI|
-:Hiển thị đơn PENDING;
-|Khách hàng|
-:Chọn WALLET/CARD và xác nhận;
-|Next.js UI|
-:Gửi POST /payments với orderId, method,
-simulateFailure? và Idempotency-Key;
-|NestJS API|
-:BEGIN transaction, lock user;
-:Tìm Payment theo userId + key;
-if (Key đã tồn tại?) then (Có)
-  if (Hash giống và snapshot có sẵn?) then (Có)
-    :Trả kết quả đã lưu;
-  else (Không)
-    :Trả Conflict;
+  :Yeu cau dang nhap;
+  |Customer|
+  if (Dang nhap thanh cong?) then (Co)
     |Next.js UI|
-    :Hiển thị lỗi xung đột;
-    stop
-  endif
-else (Key mới)
-  :Lock Order, kiểm owner/trạng thái;
-  |NestJS MockPaymentProvider|
-  :Xử lý mock theo số tiền lấy từ Order;
-  if (Provider trả SUCCESS?) then (Có)
+    :Gui lai checkout voi JWT moi;
     |NestJS API|
-    :Lưu Payment SUCCESS;
-    :Order -> PAID;
-    :Cộng floor(totalAmount / 1000) điểm;
-  else (FAILED)
-    |NestJS API|
-    :Lưu Payment FAILED;
-    :Order -> PAYMENT_FAILED;
-  endif
-  :Lưu resultSnapshot, COMMIT;
-endif
-|Next.js UI|
-:Hiển thị kết quả thanh toán;
-if (Thanh toán thành công?) then (Có)
-  |Khách hàng|
-  :Xem mã đơn/trạng thái;
-  stop
-else (Thất bại)
-  |Khách hàng|
-  if (Thử thanh toán lại?) then (Có)
-    :Dùng cùng Order và key mới;
-    |Next.js UI|
-    :Gửi lại POST /payments;
-    |NestJS API|
-    :Kiểm tra trạng thái PAYMENT_FAILED;
-    |NestJS MockPaymentProvider|
-    :Xử lý mock lần thử mới;
-    |NestJS API|
-    :Ghi kết quả mới theo service;
-    |Next.js UI|
-    :Hiển thị kết quả;
-    stop
-  else (Không)
-    :Kết thúc, đơn vẫn PAYMENT_FAILED;
+  else (Huy / that bai)
+    :Dung checkout, khong tao don;
     stop
   endif
 endif
-note right
-MockPaymentProvider là adapter nội bộ, không phải dịch vụ mạng ngoài.
-Nó được gọi trong transaction hiện tại.
-Code không lưu trạng thái PROCESSING/UNKNOWN trước lời gọi.
-Retry sau PAYMENT_FAILED dùng cùng Order và key mới.
-end note
+
+|NestJS API|
+:Bat dau transaction tao don;
+|Database|
+:Kiem tra ton kho va optimistic lock;
+if (Con du ton kho?) then (Co)
+  |Database|
+  :Tao Order PENDING va OrderItems;
+  :Cap nhat ton kho trong transaction;
+  :Commit transaction;
+else (Khong)
+  |Database|
+  :Rollback transaction;
+  |Next.js UI|
+  :Thong bao het hang, giu gio de dieu chinh;
+  stop
+endif
+
+|Customer|
+:Chon Vi hoac The mo phong;
+:Xac nhan thanh toan;
+
+|Next.js UI|
+:Gui payment request va Idempotency-Key;
+
+|NestJS API|
+:Xac thuc quyen so huu don,\ntrang thai va payload;
+if (Key da duoc xu ly?) then (Co)
+  if (Payload trung khop?) then (Co)
+    :Tra lai ket qua da ghi;
+  else (Khong)
+    :Tu choi xung dot key/payload;
+    |Next.js UI|
+    :Hien thi loi xung dot;
+    stop
+  endif
+else (Chua)
+  :Ghi nhan key dang xu ly;
+  |Mock Payment Service|
+  :Mo phong thanh toan;
+  if (Ket qua thanh toan?) then (Thanh cong)
+    |NestJS API|
+    :Ghi Payment va chuyen Order sang PAID;
+    :Ghi Loyalty idempotent;
+  else (That bai)
+    |NestJS API|
+    :Ghi Payment that bai;\nchuyen Order sang PAYMENT_FAILED;
+  endif
+endif
+
+|Next.js UI|
+if (Trang thai cuoi?) then (PAID)
+  :Thong bao thanh cong va ma don;
+  :Xoa gio hang;
+else (That bai)
+  :Thong bao loi, giu gio hang;
+endif
+stop
 @enduml
