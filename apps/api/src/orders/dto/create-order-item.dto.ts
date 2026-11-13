@@ -1,0 +1,75 @@
+import { Type } from "class-transformer";
+import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+  ValidateNested,
+} from "class-validator";
+
+export const ORDER_SIZES = ["S", "M", "L"] as const;
+export const ORDER_TOPPINGS = ["pearls", "cheese-foam", "espresso"] as const;
+
+class ToppingQuantityDto {
+  @IsIn([...ORDER_TOPPINGS])
+  id!: (typeof ORDER_TOPPINGS)[number];
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  quantity!: number;
+}
+
+export class CreateOrderItemDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  productId!: number;
+
+  @IsIn(ORDER_SIZES)
+  size!: (typeof ORDER_SIZES)[number];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique()
+  @IsIn([...ORDER_TOPPINGS], { each: true })
+  toppings: string[] = [];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique((item: ToppingQuantityDto) => item.id)
+  @Type(() => ToppingQuantityDto)
+  @ValidateNested({ each: true })
+  toppingQuantities?: ToppingQuantityDto[];
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  quantity!: number;
+}
+
+export class CreateOrderDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ArrayNotEmpty()
+  @ArrayUnique((item: unknown) => {
+    if (typeof item !== "object" || item === null) return item;
+    const option = item as Partial<CreateOrderItemDto>;
+    const toppings = Array.isArray(option.toppings)
+      ? [...option.toppings].sort()
+      : option.toppings;
+    return JSON.stringify([option.productId, option.size, toppings]);
+  })
+  @Type(() => CreateOrderItemDto)
+  @ValidateNested({ each: true })
+  items!: CreateOrderItemDto[];
+}
