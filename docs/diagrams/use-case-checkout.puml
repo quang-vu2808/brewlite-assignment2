@@ -11,7 +11,6 @@ skinparam usecase {
  ArrowColor #42546B
 }
 actor "Customer\n(ST-01)" as Customer
-actor "Mock Payment Service\n(ST-06)" as Mock
 rectangle "BrewLite – System Boundary" {
   usecase "UC-18\nĐặt và thanh toán đơn hàng" as UC18
   usecase "UC-06\nTạo đơn (FR-09)" as UC06
@@ -21,7 +20,6 @@ rectangle "BrewLite – System Boundary" {
   usecase "UC-11\nÁp mã khuyến mãi (FR-18)" as UC11
 }
 Customer -- UC18
-Mock -- UC07
 UC18 ..> UC06 : <<include>>
 UC18 ..> UC07 : <<include>>
 UC06 ..> UC16 : <<include>>
@@ -31,5 +29,6 @@ note bottom of UC18
 JWT là tiền điều kiện; State Machine (FR-15),
 Loyalty (FR-19) và transaction được đặc tả
 trong use-case-checkout.md, không phải actor riêng.
+MockPaymentProvider là adapter nội bộ NestJS, không phải actor ngoài hệ thống.
 end note
 @enduml

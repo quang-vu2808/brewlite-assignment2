@@ -5,64 +5,71 @@ actor Customer
 participant "Next.js UI" as UI
 participant "NestJS API" as API
 database PostgreSQL as DB
-participant "Mock Payment" as Pay
-Customer -> UI: Checkout()
-UI -> API: POST /orders
-API -> API: Kiểm JWT, validate DTO / giá
-alt Chưa đăng nhập / JWT sai
-  API --> UI: 401 Unauthorized
-  UI --> Customer: Yêu cầu đăng nhập
-  Customer -> UI: Đăng nhập
-  UI -> API: POST /auth/login
-  API --> UI: 200 + JWT
-  UI -> API: POST /orders (JWT hợp lệ)
-end
-API -> DB: Đọc Product / Promotion
-DB --> API: Giá / điều kiện áp dụng
-group Tạo đơn: transaction + optimistic locking
-  API -> DB: BEGIN
-  API -> DB: Kiểm tồn / version
-  alt Hết hàng hoặc xung đột version
-    API -> DB: ROLLBACK
-    API --> UI: Báo hết hàng / giữ giỏ
-    UI --> Customer: Điều chỉnh giỏ
-  else Đủ hàng
-    API -> DB: UPDATE stock, INSERT OrderItem
-    API -> DB: INSERT Order(PENDING); COMMIT
-    DB --> API: Commit thành công
-    API --> UI: 201: orderId, PENDING
-  end
-end
-opt Đơn PENDING đã tạo
-  Customer -> UI: Chọn phương thức Ví / Thẻ
-  Customer -> UI: Xác nhận thanh toán
-  UI -> API: POST /payments (Idempotency-Key)
-  API -> API: Kiểm quyền, tiền, trạng thái
-  API -> DB: Tra Idempotency-Key
-  alt Cùng key đã xử lý
-    DB --> API: Trả kết quả đã lưu
-    API --> UI: Kết quả cũ / lỗi 409 nếu payload khác
-  else Key mới, hợp lệ
-    API -> Pay: Pay(amount, method, key)
-    alt Thanh toán thành công
-      Pay --> API: Success
-      API -> DB: Ghi Payment / PAID
-      API -> DB: Ghi Loyalty một lần
+participant "NestJS MockPaymentProvider (in-process)" as Pay
+
+Customer -> UI: Xem menu, cấu hình món, mở giỏ
+UI -> API: POST /orders/preview\nJWT, items, promoCode?, redeemPoints?
+API -> API: JwtAuthGuard + validate DTO
+alt JWT thiếu/sai hoặc payload không hợp lệ
+  API --> UI: 401/400 error
+  UI --> Customer: Đăng nhập hoặc sửa giỏ
+else Preview hợp lệ
+  API -> DB: Đọc công thức/nguyên liệu, promotion, điểm user
+  DB --> API: Availability và dữ liệu giá đáng tin cậy
+  API --> UI: Preview, tổng tiền và availability
+  Customer -> UI: Xác nhận tạo đơn
+  UI -> API: POST /orders\nJWT, items, promoCode?, redeemPoints?
+  API -> API: JwtAuthGuard + DTO + tính giá server-side
+  group Transaction tạo đơn
+    API -> DB: BEGIN
+    API -> DB: Reserve nguyên liệu theo công thức/version
+    API -> DB: Reserve promotion usage, trừ điểm đổi (nếu có)
+    API -> DB: Lưu Order(PENDING), OrderItems snapshot,\nOrderIngredientConsumption
+    alt Thiếu nguyên liệu / promotion / điểm không hợp lệ
+      API -> DB: ROLLBACK
+      API --> UI: Lỗi tạo đơn
+      UI --> Customer: Giữ giỏ, hiển thị lý do
+    else Tạo đơn thành công
       API -> DB: COMMIT
-      API --> UI: orderId / PAID
-      UI --> Customer: Hiện xác nhận đơn
-    else Thanh toán thất bại
-      Pay --> API: Failed
-      API -> DB: Lưu PAYMENT_FAILED
-      API --> UI: Báo thanh toán thất bại
-      UI --> Customer: Giữ giỏ / cho thử lại
+      API --> UI: 201 orderId, totalAmount, PENDING
+      UI --> Customer: Chọn WALLET hoặc CARD
+      Customer -> UI: Xác nhận thanh toán
+      UI -> API: POST /payments\nJWT, orderId, method, simulateFailure?\nHeader: Idempotency-Key
+      API -> API: Validate key + hash(orderId, method, simulateFailure)
+      API -> DB: BEGIN; lock User; tìm Payment theo userId + key
+      alt Key đã có, cùng payload và resultSnapshot
+        DB --> API: resultSnapshot đã lưu
+        API --> UI: Trả lại kết quả cũ
+      else Key đã có, payload khác hoặc chưa có snapshot
+        API --> UI: Conflict
+      else Key mới
+        API -> DB: Lock Order; kiểm ownership và trạng thái
+        DB --> API: Order.totalAmount + status
+        API -> Pay: process(orderId, amount từ Order, method, simulateFailure)
+        note right of API
+          MockPaymentProvider là adapter nội bộ.
+          Lời gọi chạy bên trong DataSource.transaction.
+        end note
+        alt Provider trả SUCCESS
+          Pay --> API: SUCCESS
+          API -> DB: Lưu Payment SUCCESS + requestHash
+          API -> DB: Order -> PAID; cộng floor(totalAmount / 1000) điểm
+          API -> DB: Lưu resultSnapshot; COMMIT
+          API --> UI: POST response 201, status SUCCESS, orderStatus PAID
+        else Provider trả FAILED
+          Pay --> API: FAILED
+          API -> DB: Lưu Payment FAILED; Order -> PAYMENT_FAILED
+          API -> DB: Lưu resultSnapshot; COMMIT
+          API --> UI: POST response 201, status FAILED
+        end
+      end
+      UI --> Customer: Hiển thị kết quả và trạng thái đơn
     end
   end
 end
-note over UI,Pay
-  Gửi lại cùng key + payload: trả kết quả cũ.
-  Thanh toán mới sau FAILED: dùng key mới trên cùng Order.
-  Nếu timeout / chưa rõ kết quả: đối soát key cũ,
-  không tự đánh dấu PAID.
+note over API,DB
+Không có bản ghi PROCESSING/UNKNOWN được commit trước khi gọi provider.
+Code hiện không có nhánh đối soát timeout riêng; lỗi provider làm transaction thất bại.
+Retry sau PAYMENT_FAILED dùng cùng Order và một key mới.
 end note
 @enduml

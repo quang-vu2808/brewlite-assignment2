@@ -71,7 +71,7 @@ BrewLite hướng đến giải quyết các nhu cầu đó thông qua một lu�
 
 | Mã | Hạng mục | Mô tả | Phân loại |
 | --- | --- | --- | --- |
-| EX-01 | Giao diện riêng cho nhân viên quầy/Barista | Tiếp nhận đơn và thao tác cập nhật trạng thái pha chế trên giao diện nhân viên, thay vì chỉ có xử lý trạng thái ở Backend | Đề gốc xác định chức năng nhân viên quầy ngoài MVP; cách tách giao diện và Backend là đề xuất cụ thể hóa |
+| EX-01 | Giao diện riêng cho nhân viên quầy/Barista | Tiếp nhận đơn và thao tác cập nhật trạng thái pha chế trên giao diện nhân viên | Phân loại Could theo scope MVP; code BrewLite chính đã có staff queue/UI và endpoint cập nhật trạng thái |
 | EX-02 | Trang quản trị menu chuyên biệt | Cho phép người quản lý chỉnh sửa menu qua một giao diện riêng | Đề xuất bổ sung, không phải yêu cầu trực tiếp của hai đề |
 | EX-03 | Thông báo chủ động | Gửi thông báo khi trạng thái đơn thay đổi qua email hoặc push notification | Đề xuất bổ sung, không phải yêu cầu trực tiếp của hai đề |
 

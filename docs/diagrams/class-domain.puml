@@ -1,141 +1,216 @@
 @startuml
-title BrewLite - Domain Class Diagram (UC-18)
-skinparam shadowing false
-skinparam backgroundColor white
-skinparam defaultFontSize 16
+title Task 2.3 - Class Diagram: BrewLite domain theo code
+hide empty methods
 skinparam classAttributeIconSize 0
-skinparam linetype ortho
-skinparam class {
-  BackgroundColor #F8FAFC
-  BorderColor #42546B
-  ArrowColor #42546B
-  FontName Arial
-}
-skinparam enum {
-  BackgroundColor #FFF4CC
-  BorderColor #B08900
-  FontName Arial
-}
+skinparam shadowing false
 
-class User {
+class UserEntity {
   +id: UUID
-  +email: String
-  +passwordHash: String
+  +email: string
+  -passwordHash: string
   +loyaltyPoints: int
+  +role: CUSTOMER | STAFF
   +createdAt: DateTime
 }
-
-class Product {
-  +id: UUID
-  +name: String
-  +description: String
-  +basePrice: Decimal
-  +stockQuantity: int
-  +isAvailable: boolean
+class Product <<in-memory catalog>> {
+  +id: int
+  +name: string
+  +price: int
+  +image: string
 }
-
-class Order {
+class OrderEntity {
   +id: UUID
-  +userId: UUID
+  +userId: UUID?
   +status: OrderStatus
-  +subtotal: Decimal
-  +discountAmount: Decimal
-  +totalAmount: Decimal
+  +subtotalAmount: int
+  +discountAmount: int
+  +loyaltyDiscountAmount: int
+  +redeemedPoints: int
+  +totalAmount: int
+  +promotionCode: string?
+  +loyaltyPointsAwarded: int
+  +inventoryReleasedAt: DateTime?
+  +promotionUsageReleasedAt: DateTime?
   +createdAt: DateTime
 }
-
-class OrderItem {
-  +id: UUID
-  +productId: UUID
-  +productNameSnapshot: String
-  +size: ProductSize
-  +toppings: String[*]
-  +quantity: int
-  +unitPrice: Decimal
-  +lineTotal: Decimal
-}
-
-class Payment {
+class OrderItemEntity {
   +id: UUID
   +orderId: UUID
-  +idempotencyKey: String
-  +payloadHash: String
+  +productId: int
+  +productName: string
+  +size: Size
+  +toppings: OrderToppingSnapshot[] (JSONB)
+  +quantity: int
+  +unitPrice: int
+  +lineTotal: int
+}
+class PaymentEntity {
+  +id: UUID
+  +orderId: UUID
+  +userId: UUID?
   +method: PaymentMethod
   +status: PaymentStatus
-  +amount: Decimal
-  +mockTransactionId: String
+  +amount: int
+  +idempotencyKey: string?
+  +requestHash: string?
+  +resultSnapshot: JSON?
   +createdAt: DateTime
+  +updatedAt: DateTime
 }
-
-class Promotion {
-  +id: UUID
-  +code: String
+class PromotionEntity {
+  +code: string (PK)
   +discountType: DiscountType
-  +discountValue: Decimal
-  +maxDiscount: Decimal
-  +startsAt: DateTime
-  +endsAt: DateTime
+  +value: int
+  +minimumAmount: int
+  +maximumDiscount: int?
   +isActive: boolean
+  +startsAt: DateTime?
+  +endsAt: DateTime?
+  +usageLimit: int?
+  +usageCount: int
 }
-
-class LoyaltyTransaction {
+class LoyaltyTransaction <<conceptual only>> {
   +id: UUID
   +userId: UUID
   +orderId: UUID
   +pointsDelta: int
   +createdAt: DateTime
 }
+class IngredientEntity {
+  +id: UUID
+  +name: string
+  +code: string
+  +unit: string
+  +stock: int
+  +warningThreshold: int
+  +kind: IngredientKind
+  +category: string?
+  +isActive: boolean
+  +compatibleSizes: Size[]
+  +version: int
+}
+class IngredientRecipeEntity {
+  +id: UUID
+  +productId: int
+  +ingredientId: UUID
+  +quantityRequired: int
+}
+class ProductSizeRecipeEntity {
+  +productId: int
+  +size: Size
+  +approvalStatus: RecipeApproval
+}
+class ProductSizeRecipeItemEntity {
+  +productId: int
+  +size: Size
+  +ingredientId: UUID
+  +quantityRequired: int
+}
+class ProductPackagingRecipeEntity {
+  +productId: int
+  +size: Size
+  +ingredientId: UUID
+  +usageType: PackagingUsage
+  +quantityRequired: int
+  +servingsPerUnit: int
+}
+class ToppingEntity {
+  +id: string (PK)
+  +name: string
+  +surcharge: int
+  +ingredientId: UUID?
+  +isActive: boolean
+  +portionQuantityRequired: int?
+}
+class ProductToppingRecipeEntity {
+  +productId: int
+  +size: Size
+  +toppingId: string
+  +quantityRequired: int
+  +maxPortions: int
+}
+class OrderIngredientConsumptionEntity {
+  +id: UUID
+  +orderId: UUID
+  +ingredientId: UUID
+  +ingredientName: string
+  +ingredientCode: string
+  +ingredientUnit: string
+  +quantity: int
+}
 
+enum Size {
+  S
+  M
+  L
+}
+enum PaymentMethod {
+  WALLET
+  CARD
+}
+enum PaymentStatus {
+  SUCCESS
+  FAILED
+}
+enum DiscountType {
+  PERCENT
+  FIXED
+}
 enum OrderStatus {
   PENDING
-  PAID
   PAYMENT_FAILED
+  PAID
   PREPARING
   READY
   COMPLETED
   CANCELLED
 }
-
-enum PaymentStatus {
-  PROCESSING
-  SUCCEEDED
-  FAILED
-  UNKNOWN
+enum IngredientKind {
+  INGREDIENT
+  PACKAGING
+}
+enum RecipeApproval {
+  PENDING
+  CONFIRMED
+}
+enum PackagingUsage {
+  PER_SERVING
+  PER_ORDER
+  PER_GROUP
 }
 
-enum PaymentMethod {
-  WALLET
-  CARD
-}
+UserEntity "0..1" -- "0..*" OrderEntity : user_id
+OrderEntity "1" *-- "1..*" OrderItemEntity : order_id
+OrderEntity "1" -- "0..*" PaymentEntity : order_id
+UserEntity "0..1" -- "0..*" PaymentEntity : user_id
+OrderEntity "1" -- "0..*" OrderIngredientConsumptionEntity : order_id
+IngredientEntity "1" -- "0..*" OrderIngredientConsumptionEntity : ingredient_id
+IngredientEntity "1" -- "0..*" IngredientRecipeEntity : ingredient_id
+ProductSizeRecipeEntity "1" *-- "1..*" ProductSizeRecipeItemEntity : product_id + size
+IngredientEntity "1" -- "0..*" ProductSizeRecipeItemEntity : ingredient_id
+IngredientEntity "1" -- "0..*" ProductPackagingRecipeEntity : ingredient_id
+IngredientEntity "0..1" -- "0..*" ToppingEntity : optional ingredient_id
+ToppingEntity "1" -- "0..*" ProductToppingRecipeEntity : topping_id
+Product .. OrderItemEntity : productId snapshot, no FK
+Product .. IngredientRecipeEntity : productId catalog reference, no FK
+Product .. ProductSizeRecipeEntity : productId catalog reference, no FK
+Product .. ProductPackagingRecipeEntity : productId catalog reference, no FK
+Product .. ProductToppingRecipeEntity : productId catalog reference, no FK
+PromotionEntity .. OrderEntity : promotionCode reference, no FK
+UserEntity .. LoyaltyTransaction : conceptual only
+OrderEntity .. LoyaltyTransaction : conceptual only
 
-enum ProductSize {
-  S
-  M
-  L
-}
-
-enum DiscountType {
-  PERCENTAGE
-  FIXED_AMOUNT
-}
-
-User "1" -- "0..*" Order : places
-Order "1" *-- "1..*" OrderItem : contains
-Product "1" -- "0..*" OrderItem : selected for
-Order "1" -- "0..*" Payment : payment attempts
-Promotion "0..1" -- "0..*" Order : applied to
-User "1" -- "0..*" LoyaltyTransaction : earns
-Order "1" -- "0..1" LoyaltyTransaction : awards once
-
-note right of Payment
-Same key + same payload replays
-the stored result; changed payload
-with the same key is rejected.
+note bottom of Product
+Catalog is an in-memory ProductsService list, not a TypeORM entity.
+productId values on order/recipe rows are catalog references, not Product FKs.
 end note
-note bottom of Order
-Successful: PENDING -> PAID -> PREPARING
--> READY -> COMPLETED
-Failure: PENDING -> PAYMENT_FAILED
-Retry: PAYMENT_FAILED -> PENDING
+note right of LoyaltyTransaction
+Required by the assignment's domain model, but not persisted in code.
+Current implementation stores points on UserEntity and
+OrderEntity.loyaltyPointsAwarded/redeemedPoints.
+end note
+note bottom of PaymentEntity
+Only SUCCESS/FAILED are persisted. MockPaymentProvider runs inside the pay
+transaction; there is no PROCESSING/UNKNOWN row or mockTransactionId field.
 end note
 @enduml

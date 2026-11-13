@@ -1,105 +1,75 @@
 @startuml
-title BrewLite - Sequence Diagram: Dat hang va thanh toan (UC-18)
-hide footbox
-skinparam shadowing false
-skinparam backgroundColor white
-skinparam defaultFontSize 16
-skinparam sequence {
-  ArrowColor #42546B
-  LifeLineBorderColor #8493A5
-  LifeLineBackgroundColor #F8FAFC
-  ParticipantBorderColor #42546B
-  ParticipantBackgroundColor #EAF0F6
-  ParticipantFontName Arial
-  ParticipantFontSize 16
-  ActorBorderColor #42546B
-  ActorFontName Arial
-  GroupBorderColor #8091A5
-  GroupHeaderBackgroundColor #EAF0F6
-  BoxBorderColor #B7C4D1
-  BoxBackgroundColor #F8FAFC
-  FontName Arial
-  MessageFontSize 16
-}
-
+title Task 2.2 - Sequence Diagram: UC-18 Đặt và thanh toán đơn hàng
+autonumber
 actor Customer
 participant "Next.js UI" as UI
 participant "NestJS API" as API
-database "PostgreSQL" as DB
-participant "Mock Payment Service" as Pay
+database PostgreSQL as DB
+participant "NestJS MockPaymentProvider (in-process)" as Pay
 
-Customer -> UI: Xac nhan gio hang
-UI -> API: POST /orders\nAuthorization: Bearer JWT\n(cart items, promotion?)
-activate API
-API -> API: Validate JWT, quyen va payload
-API -> API: Tinh lai gia tu du lieu tin cay
-alt Gio hang khong hop le
-  API --> UI: 400 Validation error
-  UI --> Customer: Hien thi loi, giu gio hang
-else JWT thieu / sai / het han
-  API --> UI: 401 Unauthorized
-  UI --> Customer: Yeu cau dang nhap, giu gio
-else Hop le
-  opt Ma khuyen mai duoc nhap
-    API -> DB: Kiem tra hieu luc va dieu kien promotion
-    DB --> API: Promotion va muc giam hop le
-  end
-  group Transaction tao don + cap nhat ton kho
+Customer -> UI: Xem menu, cấu hình món, mở giỏ
+UI -> API: POST /orders/preview\nJWT, items, promoCode?, redeemPoints?
+API -> API: JwtAuthGuard + validate DTO
+alt JWT thiếu/sai hoặc payload không hợp lệ
+  API --> UI: 401/400 error
+  UI --> Customer: Đăng nhập hoặc sửa giỏ
+else Preview hợp lệ
+  API -> DB: Đọc công thức/nguyên liệu, promotion, điểm user
+  DB --> API: Availability và dữ liệu giá đáng tin cậy
+  API --> UI: Preview, tổng tiền và availability
+  Customer -> UI: Xác nhận tạo đơn
+  UI -> API: POST /orders\nJWT, items, promoCode?, redeemPoints?
+  API -> API: JwtAuthGuard + DTO + tính giá server-side
+  group Transaction tạo đơn
     API -> DB: BEGIN
-    API -> DB: Kiem tra ton kho, optimistic lock
-    alt Het hang / xung dot
-      DB --> API: Khong du ton kho
+    API -> DB: Reserve nguyên liệu theo công thức/version
+    API -> DB: Reserve promotion usage, trừ điểm đổi (nếu có)
+    API -> DB: Lưu Order(PENDING), OrderItems snapshot,\nOrderIngredientConsumption
+    alt Thiếu nguyên liệu / promotion / điểm không hợp lệ
       API -> DB: ROLLBACK
-      API --> UI: 409 Inventory conflict
-      UI --> Customer: Bao mat hang, giu gio de sua
-    else Con du ton kho
-      API -> DB: INSERT Order(PENDING), OrderItems\nva cap nhat ton kho
+      API --> UI: Lỗi tạo đơn
+      UI --> Customer: Giữ giỏ, hiển thị lý do
+    else Tạo đơn thành công
       API -> DB: COMMIT
-      DB --> API: orderId, total
-      API --> UI: 201 Created (orderId, total, PENDING)
-      UI --> Customer: Hien thi tong tien va chon Vi/The
-      Customer -> UI: Xac nhan thanh toan
-      UI -> API: POST /payments\nJWT, orderId, method, amount\nIdempotency-Key
-      API -> API: Xac thuc JWT, quyen so huu,\ntrang thai, amount va method
-      alt Key da co, cung payload
-        API -> DB: Tim Idempotency-Key va ket qua
-        DB --> API: Ket qua da ghi
-        API --> UI: Tra lai ket qua cu\n(khong goi mock lan nua)
-      else Key da co, payload khac
-        API --> UI: 409 Idempotency conflict
-      else Key moi
-        API -> DB: Luu key + payload hash (processing)
-        DB --> API: Da ghi nhan key
-        API -> Pay: Mo phong thanh toan\n(khong giu DB transaction)
-        alt Thanh toan thanh cong
-          Pay --> API: Success + mock transactionId
-          group Ghi nhan ket qua idempotent
-            API -> DB: BEGIN
-            API -> DB: Luu Payment thanh cong;\nOrder PENDING -> PAID
-            API -> DB: Ghi Loyalty toi da mot lan/order
-            API -> DB: COMMIT
-          end
-          DB --> API: PAID, payment result
-          API --> UI: 200 OK (PAID, orderId)
-        else Thanh toan that bai
-          Pay --> API: Failure + reason
-          API -> DB: Luu Payment that bai;\nOrder PENDING -> PAYMENT_FAILED
-          DB --> API: PAYMENT_FAILED
-          API --> UI: 402 Payment failed
-        else Timeout / ket qua chua ro
-          Pay --> API: Timeout / unknown
-          API -> DB: Giu key o trang thai can doi soat
-          API --> UI: 202 Dang xac minh\n(tiep tuc dung cung key)
+      API --> UI: 201 orderId, totalAmount, PENDING
+      UI --> Customer: Chọn WALLET hoặc CARD
+      Customer -> UI: Xác nhận thanh toán
+      UI -> API: POST /payments\nJWT, orderId, method, simulateFailure?\nHeader: Idempotency-Key
+      API -> API: Validate key + hash(orderId, method, simulateFailure)
+      API -> DB: BEGIN; lock User; tìm Payment theo userId + key
+      alt Key đã có, cùng payload và resultSnapshot
+        DB --> API: resultSnapshot đã lưu
+        API --> UI: Trả lại kết quả cũ
+      else Key đã có, payload khác hoặc chưa có snapshot
+        API --> UI: Conflict
+      else Key mới
+        API -> DB: Lock Order; kiểm ownership và trạng thái
+        DB --> API: Order.totalAmount + status
+        API -> Pay: process(orderId, amount từ Order, method, simulateFailure)
+        note right of API
+          MockPaymentProvider là adapter nội bộ.
+          Lời gọi chạy bên trong DataSource.transaction.
+        end note
+        alt Provider trả SUCCESS
+          Pay --> API: SUCCESS
+          API -> DB: Lưu Payment SUCCESS + requestHash
+          API -> DB: Order -> PAID; cộng floor(totalAmount / 1000) điểm
+          API -> DB: Lưu resultSnapshot; COMMIT
+          API --> UI: POST response 201, status SUCCESS, orderStatus PAID
+        else Provider trả FAILED
+          Pay --> API: FAILED
+          API -> DB: Lưu Payment FAILED; Order -> PAYMENT_FAILED
+          API -> DB: Lưu resultSnapshot; COMMIT
+          API --> UI: POST response 201, status FAILED
         end
       end
-      alt PAID (ke ca replay ket qua thanh cong)
-        UI --> Customer: Xac nhan ma don, tong tien, PAID
-        UI -> UI: Xoa gio hang
-      else That bai / dang xac minh
-        UI --> Customer: Hien thi loi/trang thai, giu gio hang
-      end
+      UI --> Customer: Hiển thị kết quả và trạng thái đơn
     end
   end
 end
-deactivate API
+note over API,DB
+Không có bản ghi PROCESSING/UNKNOWN được commit trước khi gọi provider.
+Code hiện không có nhánh đối soát timeout riêng; lỗi provider làm transaction thất bại.
+Retry sau PAYMENT_FAILED dùng cùng Order và một key mới.
+end note
 @enduml
