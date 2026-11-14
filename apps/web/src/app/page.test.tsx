@@ -1,6 +1,23 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { AuthProvider } from "../components/auth-provider";
+import { CartProvider } from "../components/cart-provider";
 import Home from "./page";
+
+function renderMenu() {
+  return render(
+    <CartProvider>
+      <AuthProvider>
+        <Home />
+      </AuthProvider>
+    </CartProvider>,
+  );
+}
+
+beforeEach(() => {
+  window.localStorage.removeItem("brewlite-cart-v1");
+  window.sessionStorage.removeItem("brewlite-auth-v1");
+});
 
 afterEach(() => {
   cleanup();
@@ -14,7 +31,7 @@ describe("BrewLite menu", () => {
       json: async () => [{ id: 1, name: "Cappuccino", price: 45000, image: "/images/products/cappuccino.svg" }],
     }));
 
-    render(<Home />);
+    renderMenu();
 
     expect(await screen.findByRole("heading", { name: "Cappuccino" })).toBeTruthy();
     expect(screen.getByText((text) => text.includes("45.000") && text.includes("₫"))).toBeTruthy();
@@ -24,7 +41,7 @@ describe("BrewLite menu", () => {
   it("shows a loading state while the API request is pending", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => undefined)));
 
-    render(<Home />);
+    renderMenu();
 
     expect(screen.getByRole("status", { name: "Đang tải sản phẩm" })).toBeTruthy();
   });
@@ -32,7 +49,7 @@ describe("BrewLite menu", () => {
   it("shows an empty state when the API returns no products", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
 
-    render(<Home />);
+    renderMenu();
 
     expect(await screen.findByText("Hiện chưa có sản phẩm nào. Mời bạn quay lại sau.")).toBeTruthy();
   });
@@ -43,7 +60,7 @@ describe("BrewLite menu", () => {
       .mockResolvedValueOnce({ ok: true, json: async () => [{ id: 2, name: "Bạc xỉu", price: 30000 }] });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Home />);
+    renderMenu();
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Thử lại" }));

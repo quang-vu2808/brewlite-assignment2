@@ -1,0 +1,24 @@
+name: brewlite-assignment2-db
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: brewlite_assignment2
+      POSTGRES_USER: brewlite_a2
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the ignored local .env file}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  pgdata:
+    name: brewlite_assignment2_pgdata
