@@ -1,0 +1,8 @@
+{
+  "testEnvironment": "node",
+  "testMatch": ["<rootDir>/**/*.integration-spec.ts"],
+  "setupFiles": ["<rootDir>/setup-integration.ts"],
+  "transform": {
+    "^.+\\.ts$": "ts-jest"
+  }
+}

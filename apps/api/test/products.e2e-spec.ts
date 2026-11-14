@@ -1,14 +1,16 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/configure-app';
+import { ProductsModule } from '../src/products/products.module';
 
 describe('Products API (e2e)', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [ProductsModule] }).compile();
     app = moduleRef.createNestApplication();
+    configureApp(app);
     await app.init();
   });
 

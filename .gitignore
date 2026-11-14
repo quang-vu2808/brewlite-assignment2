@@ -7,3 +7,6 @@ coverage/
 !.env.example
 npm-debug.log*
 *.tsbuildinfo
+/apps/web/test-results/
+/apps/web/playwright-report/
+/apps/web/playwright/.cache/

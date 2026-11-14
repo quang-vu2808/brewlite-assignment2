@@ -33,6 +33,21 @@ describe('ProductsController', () => {
     expect(product.id).toBe(1);
   });
 
+  it('includes the size and topping prices required by the product detail page', () => {
+    expect(controller.findOne(1).options).toEqual({
+      sizes: [
+        { name: 'S', surcharge: 0 },
+        { name: 'M', surcharge: 5000 },
+        { name: 'L', surcharge: 10000 },
+      ],
+      toppings: [
+        { id: 'pearls', name: 'Trân châu', surcharge: 5000 },
+        { id: 'cheese-foam', name: 'Kem cheese', surcharge: 10000 },
+        { id: 'espresso', name: 'Shot espresso', surcharge: 8000 },
+      ],
+    });
+  });
+
   it('should return 404 when a product does not exist', () => {
     expect(() => controller.findOne(999)).toThrow(NotFoundException);
   });

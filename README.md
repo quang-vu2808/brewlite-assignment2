@@ -17,7 +17,7 @@ Luồng hiện có: **Menu → Chi tiết sản phẩm → Giỏ hàng → Đăn
 | 4.4 | [GitHub Actions CI](.github/workflows/ci.yml) cho API và Web | Có workflow lint, unit tests, build trên pull request vào `main`; trạng thái từng lượt chạy cần xem trên GitHub |
 | 5.1 | MVP khách hàng, lưu dữ liệu PostgreSQL, xác thực, đơn hàng và thanh toán mô phỏng | Đã nghiệm thu chức năng bắt buộc trong môi trường local theo [báo cáo Task 5.1](docs/task5.1-report.md), ngày 14/11/2026 |
 
-Task 5.2–5.4 chưa được triển khai trong phạm vi báo cáo Task 5.1. Không coi thiết kế Docker image, GHCR, CD hoặc production trong tài liệu là pipeline đã hoàn thành. Compose hiện có chỉ chạy PostgreSQL local, chưa đóng gói toàn bộ Web/API.
+Task 5.2 có health endpoint, integration tests PostgreSQL, cấu hình Docker Compose cho Web, API và PostgreSQL local, cùng Playwright E2E cho luồng từ Menu đến lịch sử đơn đã thanh toán. GHCR, CD và triển khai production thuộc phạm vi riêng.
 
 ## 2. Công nghệ và kiến trúc hiện tại
 
@@ -153,6 +153,43 @@ npm run dev
 
 Truy cập [BrewLite local](http://localhost:3000). Giữ cả PostgreSQL và API hoạt động để thử đầy đủ luồng đặt hàng; đăng ký tài khoản qua giao diện, không cần tài khoản mẫu hoặc reset database.
 
+### 5.5. Chạy toàn bộ stack với Docker trên Windows
+
+Mở Docker Desktop ở chế độ Linux containers. Từ gốc repository, tạo `.env` nếu chưa có.
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Điền `STACK_DB_PASSWORD` và `STACK_JWT_SECRET` trong `.env` local bằng hai giá trị ngẫu nhiên riêng. Dùng ít nhất 32 byte cho JWT secret. Giữ các giá trị này ổn định khi dùng lại volume. File `.env` được Git bỏ qua. Nếu cổng mặc định bận, chọn cổng trống bằng `STACK_WEB_PORT` và `STACK_API_PORT` trước khi build.
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+```
+
+Khi cả ba service có trạng thái `healthy`, mở [Web](http://localhost:3080) và kiểm tra [API](http://localhost:3081/products) cùng [health endpoint](http://localhost:3081/health).
+
+```powershell
+Invoke-RestMethod http://localhost:3081/health
+Invoke-RestMethod http://localhost:3081/products
+(Invoke-WebRequest http://localhost:3080).StatusCode
+```
+
+Project mặc định là `brewlite-assignment2-stack` với volume `brewlite-assignment2-stack_pgdata` riêng. PostgreSQL 17 chỉ có cổng nội bộ, API kết nối qua `db:5432`. NestJS áp dụng các migration còn thiếu khi khởi động, dựa trên bảng lịch sử migration. Web dùng URL API công khai của máy local, được đưa vào bundle qua `NEXT_PUBLIC_API_URL` lúc build. Nếu đổi cổng API, chạy lại `docker compose up -d --build` và dùng cổng mới trong các lệnh kiểm tra.
+
+Dừng và chạy lại stack mà vẫn giữ dữ liệu:
+
+```powershell
+docker compose stop
+docker compose up -d
+```
+
+Môi trường full-stack dùng các biến `STACK_*` và volume riêng. Cấu hình `compose.db.yml` và `compose.test-db.yml` phục vụ hai môi trường PostgreSQL khác.
+
+Có thể lưu các biến `STACK_*` trong `.env.stack` riêng. Khi chọn cách này, dùng `docker compose --env-file .env.stack` cho mọi lệnh của stack, kể cả lúc dừng. `.env.stack` cũng được Git bỏ qua.
+
 ## 6. Tests, lint và build
 
 Sau khi đã cài dependency, mở terminal tại gốc repository cho từng nhóm lệnh dưới đây. Nếu đang ở thư mục ứng dụng, chỉ chạy các lệnh `npm` tương ứng.
@@ -172,7 +209,17 @@ Kiểm thử HTTP Products có script riêng:
 npm run test:e2e -- --runInBand
 ```
 
-**Lưu ý theo mã hiện tại:** `test/products.e2e-spec.ts` import `AppModule`, nên bộ HTTP này cần cấu hình `.env` và PostgreSQL sẵn sàng; khởi tạo ứng dụng có thể chạy migration. Đây chỉ là các endpoint Products, không phải bộ E2E tự động cho toàn bộ checkout. Unit tests của CI là phạm vi riêng, không cần khởi động database thật.
+Bộ HTTP Products dùng `ProductsModule` và chạy độc lập với PostgreSQL. Bộ `npm run test:integration` dùng `AppModule` với PostgreSQL test riêng tại `127.0.0.1:55432` qua `compose.test-db.yml` và biến `TEST_DB_PASSWORD`.
+
+Đặt `TEST_DB_PASSWORD` trong môi trường terminal với mật khẩu riêng của PostgreSQL integration. Nếu volume đã tồn tại, dùng đúng mật khẩu đã cấu hình khi tạo volume. Từ gốc repository, chạy:
+
+```powershell
+docker compose -f compose.test-db.yml up -d --wait db
+Set-Location apps/api
+npm run test:integration
+```
+
+TypeORM áp dụng các migration còn thiếu trên database đích khi API khởi động. Menu mẫu có sẵn trong catalog backend. Để tạo dữ liệu demo, đăng ký tài khoản mới và đặt một đơn thanh toán mô phỏng qua Web. Integration và E2E tự tạo tài khoản ngẫu nhiên cho từng lượt kiểm thử. Xem [báo cáo nghiệm thu Task 5.2](docs/task5.2-report.md) để biết kết quả và giới hạn kiểm chứng.
 
 ### Web
 
@@ -194,6 +241,27 @@ npm run build
 | Web lint/build | **PASS** | Đã kiểm tra trong workspace PR |
 
 Các số liệu unit/component tests không thay thế kiểm thử giao dịch và lưu trữ trên PostgreSQL. Lượt cập nhật README chỉ đối chiếu bằng chứng, không chạy lại các bộ kiểm tra.
+
+### E2E trên Chromium (Windows)
+
+Từ gốc repository, khởi động stack với cấu hình `.env.stack` local và giữ cổng mặc định Web `3080`, API `3081` để chạy kịch bản này.
+
+```powershell
+docker compose --env-file .env.stack -p brewlite-assignment2-stack up -d --build --wait
+Set-Location apps/web
+npm ci
+npx playwright install chromium --only-shell
+npm run test:e2e -- --project=chromium
+```
+
+Nếu Chromium Headless Shell tải riêng không khởi động trên Windows, dùng Google Chrome đã cài trên máy trong cùng terminal:
+
+```powershell
+$env:PLAYWRIGHT_CHROMIUM_CHANNEL = 'chrome'
+npm run test:e2e -- --project=chromium
+```
+
+Mỗi lượt dùng browser context và tài khoản mới, gọi trực tiếp Web/API của stack và lưu đơn thanh toán mô phỏng trong PostgreSQL của stack. Dữ liệu test được giữ lại để tránh thao tác xóa hoặc reset. Chạy lại lệnh test để kiểm tra tính lặp lại.
 
 ## 7. Nghiệm thu Task 5.1 trên PostgreSQL thực tế
 

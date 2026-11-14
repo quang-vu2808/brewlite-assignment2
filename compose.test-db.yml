@@ -1,0 +1,21 @@
+name: brewlite-assignment2-integration
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: brewlite_assignment2_test
+      POSTGRES_USER: brewlite_integration
+      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD:?Set TEST_DB_PASSWORD for the integration database}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - test_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  test_pgdata:

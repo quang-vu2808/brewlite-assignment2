@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
+import { PRODUCT_OPTIONS } from './product-options';
 
 @Controller('products')
 export class ProductsController {
@@ -26,6 +27,6 @@ export class ProductsController {
       throw new NotFoundException('Không tìm thấy sản phẩm');
     }
 
-    return product;
+    return { ...product, options: PRODUCT_OPTIONS };
   }
 }
