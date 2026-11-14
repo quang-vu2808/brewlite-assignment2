@@ -1,63 +1,92 @@
 name: BrewLite CI
-
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize]
-
+  push:
+    branches: [main]
+  workflow_call:
 permissions:
   contents: read
-
 jobs:
   api:
-    name: API CI
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      TEST_DB_PROJECT: brewlite-ci-test-${{ github.run_id }}-${{ github.run_attempt }}
     defaults:
       run:
         working-directory: apps/api
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/api/package-lock.json
-      - name: Install
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Unit Test
-        run: npm run test -- --runInBand
-      - name: Build
-        run: npm run build
-
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --runInBand
+      - run: npm run test:e2e -- --runInBand
+      - run: npm run build
+      - run: node --test ../../deploy/smoke.test.mjs
+      - name: Start isolated PostgreSQL
+        working-directory: .
+        run: |
+          password=$(openssl rand -hex 32)
+          echo "::add-mask::$password"
+          echo "TEST_DB_PASSWORD=$password" >> "$GITHUB_ENV"
+          export TEST_DB_PASSWORD="$password"
+          docker compose -f compose.test-db.yml -p "$TEST_DB_PROJECT" up -d --wait --wait-timeout 90
+          docker compose -f compose.test-db.yml -p "$TEST_DB_PROJECT" exec -T db \
+            sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "SELECT 1"'
+      - run: npm run test:integration
+      - name: Verify standalone migrations on a fresh database
+        shell: bash
+        run: |
+          compose=(docker compose -f ../../compose.test-db.yml -p "$TEST_DB_PROJECT")
+          "${compose[@]}" exec -T db createdb -U brewlite_integration brewlite_ci_migrations
+          export DB_HOST=127.0.0.1 DB_PORT=55432 DB_NAME=brewlite_ci_migrations
+          export DB_USER=brewlite_integration DB_PASSWORD="$TEST_DB_PASSWORD" DB_MIGRATIONS_RUN=false
+          test "$(node dist/database/migrate.js)" = "Migrations applied: 4"
+          test "$(node dist/database/migrate.js)" = "Migrations applied: 0"
+      - name: Stop CI database
+        if: always() && env.TEST_DB_PASSWORD != ''
+        working-directory: .
+        run: docker compose -f compose.test-db.yml -p "$TEST_DB_PROJECT" stop
   web:
-    name: Web CI
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: apps/web
-    env:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
-      NEXT_TELEMETRY_DISABLED: '1'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Unit Test
-        run: npm run test -- --run
-      - name: Build
-        run: npm run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start isolated full stack
+        working-directory: .
+        run: |
+          db_password=$(openssl rand -hex 32)
+          jwt_secret=$(openssl rand -hex 32)
+          echo "::add-mask::$db_password"
+          echo "::add-mask::$jwt_secret"
+          printf 'STACK_DB_PASSWORD=%s\nSTACK_JWT_SECRET=%s\n' "$db_password" "$jwt_secret" >> "$GITHUB_ENV"
+          export STACK_DB_PASSWORD="$db_password" STACK_JWT_SECRET="$jwt_secret"
+          docker compose -p "brewlite-ci-stack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" up -d --build --wait --wait-timeout 120
+      - run: npm run test:e2e -- --project=chromium
+      - name: Stop CI stack
+        if: always() && env.STACK_DB_PASSWORD != ''
+        working-directory: .
+        run: docker compose -p "brewlite-ci-stack-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" stop

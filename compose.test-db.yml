@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: brewlite_integration
       POSTGRES_PASSWORD: ${TEST_DB_PASSWORD:?Set TEST_DB_PASSWORD for the integration database}
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:${TEST_DB_PORT:-55432}:5432"
     volumes:
       - test_pgdata:/var/lib/postgresql/data
     healthcheck:

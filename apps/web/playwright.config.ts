@@ -5,7 +5,7 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3080",
+    baseURL: process.env.E2E_WEB_URL ?? "http://localhost:3080",
     // Traces can capture registration credentials and authorization headers.
     trace: "off",
   },
