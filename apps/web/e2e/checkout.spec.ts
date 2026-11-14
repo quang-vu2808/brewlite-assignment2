@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
+const apiOrigin = process.env.E2E_API_URL ?? "http://localhost:3081";
+
 test("orders a customized drink from the menu and verifies payment in history", async ({ page }) => {
   const email = `e2e-${randomUUID()}@example.invalid`;
   const password = `E2e1!${randomUUID()}`;
@@ -11,7 +13,7 @@ test("orders a customized drink from the menu and verifies payment in history", 
   await test.step("Select a drink and check API options and cart price", async () => {
     await page.goto("/");
     const productResponse = page.waitForResponse(
-      (response) => response.url() === "http://localhost:3081/products/1" &&
+      (response) => response.url() === `${apiOrigin}/products/1` &&
         response.request().method() === "GET",
     );
     await page.getByRole("link", { name: "Xem chi tiết Cà phê sữa" }).click();
@@ -48,7 +50,7 @@ test("orders a customized drink from the menu and verifies payment in history", 
     await main.getByLabel("Nhập lại mật khẩu", { exact: true }).fill(password);
     const [registrationResponse] = await Promise.all([
       page.waitForResponse((response) =>
-        response.url() === "http://localhost:3081/auth/register" &&
+        response.url() === `${apiOrigin}/auth/register` &&
         response.request().method() === "POST",
       ),
       main.getByRole("button", { name: "Đăng ký", exact: true }).click(),

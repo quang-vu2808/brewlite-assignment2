@@ -280,7 +280,13 @@ Nguồn: phần **“Kết quả nghiệm thu PostgreSQL thực tế — 14/11/2
 
 Đây là nghiệm thu local theo các kịch bản trong báo cáo, không phải chứng nhận production hoặc xác nhận toàn bộ yêu cầu mở rộng đã hoàn thành. Những nội dung như khuyến mãi, loyalty đầy đủ, quản lý tồn kho/optimistic locking, PWA và triển khai production cần đối chiếu, triển khai và nghiệm thu riêng theo phạm vi các Task tiếp theo.
 
-## 8. CI Task 4.4
+## 8. CI/CD Task 5.3
+
+CI chạy khi mở/cập nhật PR vào `main` và khi push `main`. Các bước gồm lint, unit tests, build, API integration trên PostgreSQL riêng và Chromium E2E với stack tạm trên runner. Mật khẩu test được sinh cho từng lượt.
+
+Release dùng tag `vMAJOR.MINOR.PATCH` trên commit thuộc `main`. Sau quality gate, workflow build và publish hai image GHCR. Khi người vận hành bật deploy, workflow chạy migration trên Neon qua TLS, yêu cầu Render deploy đúng digest và chạy HTTPS smoke trước khi lưu manifest ổn định. Xem [hướng dẫn thiết lập, secrets, kiểm chứng và rollback Task 5.3](docs/task5.3-report.md).
+
+## 9. CI Task 4.4 (mốc lịch sử)
 
 Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) chạy trên sự kiện pull request `opened`, `reopened`, `synchronize` vào `main`, gồm hai job độc lập trên Ubuntu với Node.js 24:
 

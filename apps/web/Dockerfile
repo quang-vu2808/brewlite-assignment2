@@ -7,7 +7,9 @@ COPY next.config.ts tsconfig.json ./
 COPY public ./public
 COPY src ./src
 ARG NEXT_PUBLIC_API_URL=http://localhost:3081
+ARG BREWLITE_REVISION=local
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN node -e 'require("node:fs").writeFileSync("public/release.json", JSON.stringify({api: process.env.NEXT_PUBLIC_API_URL, revision: process.argv[1]}))' "$BREWLITE_REVISION"
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime

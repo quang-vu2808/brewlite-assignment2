@@ -11,7 +11,8 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
+ARG BREWLITE_REVISION=local
+ENV NODE_ENV=production BREWLITE_REVISION=${BREWLITE_REVISION}
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./package.json

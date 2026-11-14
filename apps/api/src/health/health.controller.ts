@@ -1,4 +1,4 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Header, ServiceUnavailableException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -7,6 +7,7 @@ export class HealthController {
   constructor(@InjectDataSource() private readonly database: DataSource) {}
 
   @Get()
+  @Header('X-BrewLite-Revision', process.env.BREWLITE_REVISION ?? 'local')
   async check() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {

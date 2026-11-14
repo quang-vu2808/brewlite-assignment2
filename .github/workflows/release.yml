@@ -1,0 +1,163 @@
+name: BrewLite Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: brewlite-production-demo
+  cancel-in-progress: false
+jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+  publish:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api: ${{ steps.images.outputs.api }}
+      web: ${{ steps.images.outputs.web }}
+      revision: ${{ steps.images.outputs.revision }}
+    env:
+      PROD_API_URL: ${{ vars.PROD_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tag and browser API origin
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git merge-base --is-ancestor HEAD origin/main
+          [[ "$PROD_API_URL" =~ ^https://[a-z0-9-]+\.onrender\.com$ ]]
+      - name: Build and push Web and API
+        id: images
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          revision="$sha-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          prefix="ghcr.io/${GITHUB_REPOSITORY,,}"
+          api="$prefix-api"
+          web="$prefix-web"
+          metadata=(--label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+                    --label "org.opencontainers.image.revision=$sha")
+          docker build --platform linux/amd64 "${metadata[@]}" --build-arg "BREWLITE_REVISION=$revision" -t "$api:sha-$sha" apps/api
+          docker build --platform linux/amd64 "${metadata[@]}" --build-arg "BREWLITE_REVISION=$revision" --build-arg "NEXT_PUBLIC_API_URL=$PROD_API_URL" -t "$web:sha-$sha" apps/web
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          for service in api web; do
+            name="${!service}"
+            docker push "$name:sha-$sha"
+            ref=$(docker image inspect "$name:sha-$sha" --format '{{index .RepoDigests 0}}')
+            [[ "$ref" =~ ^"$name"@sha256:[a-f0-9]{64}$ ]]
+            echo "$service=$ref" >> "$GITHUB_OUTPUT"
+            printf -v "${service}_ref" '%s' "$ref"
+          done
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          jq -n --arg api "$api_ref" --arg web "$web_ref" --arg sha "$sha" --arg revision "$revision" \
+            --arg tag "$GITHUB_REF_NAME" --arg origin "$PROD_API_URL" \
+            '{api:$api,web:$web,sha:$sha,revision:$revision,tag:$tag,apiOrigin:$origin}' > candidate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate
+          overwrite: true
+          path: candidate.json
+  deploy:
+    if: vars.PROD_DEPLOY_ENABLED == 'true'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PROD_API_URL: ${{ vars.PROD_API_URL }}
+      PROD_WEB_URL: ${{ vars.PROD_WEB_URL }}
+      RELEASE_REVISION: ${{ needs.publish.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate
+      - name: Validate deployment settings
+        env:
+          API_SERVICE: ${{ vars.RENDER_API_SERVICE_ID }}
+          WEB_SERVICE: ${{ vars.RENDER_WEB_SERVICE_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          [[ "$PROD_WEB_URL" =~ ^https://[a-z0-9-]+\.onrender\.com$ ]]
+          [[ "$PROD_API_URL" != "$PROD_WEB_URL" ]]
+          [[ -n "$RENDER_API_KEY" ]]
+          [[ "$API_SERVICE" =~ ^srv-[a-z0-9]+$ && "$WEB_SERVICE" =~ ^srv-[a-z0-9]+$ && "$API_SERVICE" != "$WEB_SERVICE" ]]
+          jq -e --arg origin "$PROD_API_URL" --arg revision "$RELEASE_REVISION" \
+            '.apiOrigin == $origin and .revision == $revision' candidate.json >/dev/null
+      - name: Record the previously approved stable image pair
+        env:
+          PREVIOUS_API: ${{ vars.PROD_STABLE_API_IMAGE }}
+          PREVIOUS_WEB: ${{ vars.PROD_STABLE_WEB_IMAGE }}
+          PREVIOUS_REVISION: ${{ vars.PROD_STABLE_REVISION }}
+          FIRST_RELEASE: ${{ vars.PROD_FIRST_RELEASE }}
+        run: |
+          if [[ "$FIRST_RELEASE" == true ]]; then
+            [[ -z "$PREVIOUS_API$PREVIOUS_WEB$PREVIOUS_REVISION" ]]
+            echo '{"firstRelease":true}' > rollback.json
+          else
+            prefix="ghcr.io/${GITHUB_REPOSITORY,,}"
+            [[ "$PREVIOUS_API" =~ ^"$prefix-api"@sha256:[a-f0-9]{64}$ ]]
+            [[ "$PREVIOUS_WEB" =~ ^"$prefix-web"@sha256:[a-f0-9]{64}$ ]]
+            [[ "$PREVIOUS_REVISION" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+            RELEASE_REVISION="$PREVIOUS_REVISION" node deploy/smoke.mjs
+            jq -n --arg api "$PREVIOUS_API" --arg web "$PREVIOUS_WEB" \
+              --arg revision "$PREVIOUS_REVISION" '{api:$api,web:$web,revision:$revision}' > rollback.json
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rollback-${{ github.run_attempt }}
+          path: rollback.json
+      - name: Run migrations from the candidate image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          RELEASE_IMAGE: ${{ needs.publish.outputs.api }}
+          DB_HOST: ${{ vars.NEON_DIRECT_HOST }}
+          DB_NAME: ${{ vars.NEON_DB_NAME }}
+          DB_USER: ${{ vars.NEON_MIGRATION_USER }}
+          DB_PASSWORD: ${{ secrets.NEON_MIGRATION_PASSWORD }}
+          DB_PORT: '5432'
+          DB_SSL: 'true'
+          DB_MIGRATIONS_RUN: 'false'
+        run: |
+          [[ "$DB_HOST" =~ ^[a-z0-9.-]+\.neon\.tech$ && "$DB_HOST" != *-pooler.* ]]
+          [[ -n "$DB_NAME" && -n "$DB_USER" && -n "$DB_PASSWORD" ]]
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          docker run --rm --platform linux/amd64 \
+            -e DB_HOST -e DB_PORT -e DB_NAME -e DB_USER -e DB_PASSWORD -e DB_SSL -e DB_MIGRATIONS_RUN \
+            "$RELEASE_IMAGE" node dist/database/migrate.js
+      - name: Deploy API digest
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_API_SERVICE_ID }}
+          RELEASE_IMAGE: ${{ needs.publish.outputs.api }}
+        run: node deploy/render.mjs
+      - name: Deploy Web digest
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_WEB_SERVICE_ID }}
+          RELEASE_IMAGE: ${{ needs.publish.outputs.web }}
+        run: node deploy/render.mjs
+      - name: Verify HTTPS release
+        run: node deploy/smoke.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stable-${{ github.run_attempt }}
+          path: candidate.json
