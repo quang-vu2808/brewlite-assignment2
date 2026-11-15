@@ -30,7 +30,7 @@ jobs:
       - run: npm test -- --runInBand
       - run: npm run test:e2e -- --runInBand
       - run: npm run build
-      - run: node --test ../../deploy/smoke.test.mjs
+      - run: node --test ../../deploy/smoke.test.mjs ../../deploy/release.test.mjs
       - name: Start isolated PostgreSQL
         working-directory: .
         run: |
