@@ -1,14 +1,10 @@
 @startuml
-' BrewLite - Assignment 2 / Task 3.2
-' Converted from the supplied diagrams.net Deployment Diagram.
-' Status: PROPOSED - NOT DEPLOYED. Review platform and port settings before approval.
-
-title BrewLite - UML Deployment Diagram\nRailway Production Proposal (NOT DEPLOYED)
-
+title BrewLite - Deployment Architecture and Release Workflow
+top to bottom direction
 skinparam backgroundColor #FFFFFF
 skinparam shadowing false
 skinparam defaultFontName Arial
-skinparam defaultFontSize 13
+skinparam defaultFontSize 14
 skinparam packageStyle rectangle
 skinparam linetype ortho
 skinparam ArrowColor #52677E
@@ -24,67 +20,61 @@ skinparam database {
   BackgroundColor #FFFFFF
   BorderColor #46566B
 }
-left to right direction
 
-package "LOCAL / Developer Workstation" as LOCAL #F2F7FC {
-  node "<<device>>\nWindows PC\nVS Code + Git" as DEV
-  artifact "brewlite monorepo\napps/web · apps/api · docs" as SRC
-  node "<<executionEnvironment>>\nDocker Compose\nweb + API + PostgreSQL\n(local only)" as COMPOSE
-  DEV --> SRC : edits
-  SRC --> COMPOSE : docker compose up
+package "DEVELOPMENT" as DEV_ENV #F2F7FC {
+  node "Developer workstation\nVS Code · Git" as WORKSTATION
+  node "Docker Compose\nNext.js · NestJS · PostgreSQL" as LOCAL_STACK
+  WORKSTATION --> LOCAL_STACK : local development
 }
 
-package "CI / GitHub Actions (Proposed)" as CI #F5F2FC {
-  artifact "GitHub source\nfeature branch" as REPO
-  node "<<executionEnvironment>>\nGitHub-hosted Runner\nCheckout -> Install -> Lint -> Test -> Build" as RUNNER
-  artifact "Docker image\nbrewlite-api:<SHA>\nBuild -> Push (proposed)" as BUILD
-  REPO --> RUNNER : trigger PR / push
-  RUNNER --> BUILD : quality gate passes
+package "SOURCE CONTROL & DELIVERY PIPELINE" as PIPELINE #F5F2FC {
+  artifact "GitHub repository\nSource · documentation · workflow" as REPO
+  node "GitHub Actions release workflow\nInstall → Lint → Tests → Build\nPublish versioned images\nApply database migrations\nDeploy services and run smoke checks\nRollback to last known good release on failure" as CI
 }
 
-package "REGISTRY / GHCR (Proposed)" as REG #FFF7E8 {
-  node "<<executionEnvironment>>\nGitHub Container Registry\nGHCR - authentication required" as GHCR
-  artifact "ghcr.io/<owner>/brewlite-api:<SHA>\nImmutable version tag" as IMAGE
-  GHCR --> IMAGE : stores image
+package "CONTAINER REGISTRY" as REGISTRY #FFF7E8 {
+  node "GitHub Container Registry" as GHCR
+  artifact "brewlite-api:<commit-sha-or-version>" as API_IMAGE
+  GHCR --> API_IMAGE : immutable version tag
 }
 
-package "PRODUCTION / Railway (PROPOSED, NOT DEPLOYED)" as PROD #EFF8F4 {
-  node "<<device>>\nCustomer Smartphone / Laptop\n<<executionEnvironment>> Browser / PWA" as CLIENT
-
-  node "<<executionEnvironment>>\nRailway Web Service\nNext.js / apps/web\nPublic HTTPS" as WEB {
-    artifact "Next.js build" as WEB_BUILD
-  }
-
-  node "<<executionEnvironment>>\nRailway API Service\nNestJS Modular Monolith / apps/api\nInternal PORT (e.g. 3000)" as API {
-    artifact "brewlite-api:<SHA>" as API_BUILD
-    component "Mock Payment Adapter\nINSIDE NestJS\n(no real-money payment)" as PAY
-  }
-
-  database "<<executionEnvironment>>\nRailway PostgreSQL\nPrivate DB / TCP 5432" as DB {
-    artifact "Persistent Volume / PostgreSQL Data\nManaged storage; backup policy to confirm" as STORAGE
-  }
-
-  node "<<executionEnvironment>>\nRailway Platform Facilities" as OPS {
-    artifact "Environment / Secrets\nDATABASE_URL · JWT_SECRET\nNODE_ENV · PORT\n(names only)" as ENV
-    artifact "Application Logs\nHealth Check: GET /health" as OBS
-  }
-
-  CLIENT --> WEB : HTTPS :443
-  CLIENT --> API : HTTPS REST/JSON :443\nclient-side calls
-  WEB ..> API : HTTPS REST/JSON :443\nserver-side calls (if used)
-  API --> DB : private PostgreSQL TCP :5432
-  API_BUILD ..> PAY : in-process adapter call
-  OPS ..> API : inject secrets / capture logs\nprobe GET /health
-  OPS ..> WEB : web env / deployment logs
+package "PRODUCTION" as PROD #EFF8F4 {
+  node "Customer browser\nDesktop or mobile" as CLIENT
+  node "Next.js Web Service\nFrontend build\nHTTPS production URL" as WEB
+  node "NestJS API Service\nAPI URL · GET /health\nMock Payment Adapter" as API
+  database "Managed PostgreSQL\nPrivate network · persistent storage" as DB
+  artifact "Runtime secrets\nDATABASE_URL · JWT_SECRET · PORT" as SECRETS
+  CLIENT --> WEB : HTTPS
+  WEB --> API : REST/JSON over HTTPS
+  API --> DB : PostgreSQL :5432
+  SECRETS ..> WEB : inject at runtime
+  SECRETS ..> API : inject at runtime
 }
 
-BUILD --> GHCR : push HTTPS :443
-IMAGE --> API_BUILD : pull image HTTPS :443
+package "RELEASE & HANDOFF" as HANDOFF #FFF9E8 {
+  artifact "Release tag and notes" as RELEASE
+  artifact "README\nLocal · test · build · deploy · rollback" as README
+  artifact "End-to-end demo" as DEMO
+  artifact "Sprint Review and Retrospective" as REVIEW
+  artifact "Acceptance\nReviewer can clone, run, and open\nthe production URLs" as ACCEPT
+  RELEASE -[hidden]right- README
+  README -[hidden]right- DEMO
+  DEMO -[hidden]right- REVIEW
+  REVIEW -[hidden]right- ACCEPT
+}
 
-legend bottom
-  All Production services and CI image publishing are proposed, not verified as deployed.
-  Next.js may deploy from source; the GHCR image path shown is for the NestJS API.
-  Mock Payment runs within the NestJS process, not in a separate container.
-endlegend
+WORKSTATION --> REPO : commit and push
+REPO --> CI : push or release tag
+CI --> GHCR : publish API image
+API_IMAGE --> API : deploy exact version
+CI --> WEB : deploy web service
+CI --> API : deploy API service
+CI --> DB : apply safe schema migration
 
+note right of PROD
+The database has no public endpoint.
+Production URLs use HTTPS.
+Secrets stay in platform settings,
+outside repository files and CI logs.
+end note
 @enduml

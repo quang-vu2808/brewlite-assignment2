@@ -1,5 +1,5 @@
 @startuml
-title BrewLite - Domain Class Diagram (UC-18)
+title Task 2.3 - Domain Class Diagram: BrewLite
 skinparam shadowing false
 skinparam backgroundColor white
 skinparam defaultFontSize 16
@@ -17,125 +17,74 @@ skinparam enum {
   FontName Arial
 }
 
-class User {
+class UserEntity <<TypeORM entity>> {
   +id: UUID
   +email: String
   +passwordHash: String
-  +loyaltyPoints: int
+  +loyaltyPoints: integer
+  +role: CUSTOMER | STAFF
   +createdAt: DateTime
 }
-
-class Product {
-  +id: UUID
+class ProductCatalogItem <<in-memory catalog>> {
+  +id: integer
   +name: String
-  +description: String
-  +basePrice: Decimal
-  +stockQuantity: int
-  +isAvailable: boolean
+  +price: integer
+  +image: String
 }
-
-class Order {
+class OrderEntity <<TypeORM entity>> {
   +id: UUID
-  +userId: UUID
   +status: OrderStatus
-  +subtotal: Decimal
-  +discountAmount: Decimal
-  +totalAmount: Decimal
+  +totalAmount: integer
   +createdAt: DateTime
+  +userId: UUID?
 }
-
-class OrderItem {
-  +id: UUID
-  +productId: UUID
-  +productNameSnapshot: String
-  +size: ProductSize
-  +toppings: String[*]
-  +quantity: int
-  +unitPrice: Decimal
-  +lineTotal: Decimal
-}
-
-class Payment {
+class OrderItemEntity <<TypeORM entity>> {
   +id: UUID
   +orderId: UUID
-  +idempotencyKey: String
-  +payloadHash: String
-  +method: PaymentMethod
-  +status: PaymentStatus
-  +amount: Decimal
-  +mockTransactionId: String
-  +createdAt: DateTime
+  +productId: integer
+  +productName: String
+  +size: S | M | L
+  +toppings: OrderToppingSnapshot[]
+  +quantity: integer
+  +unitPrice: integer
+  +lineTotal: integer
 }
-
-class Promotion {
+class PaymentEntity <<TypeORM entity>> {
   +id: UUID
-  +code: String
-  +discountType: DiscountType
-  +discountValue: Decimal
-  +maxDiscount: Decimal
-  +startsAt: DateTime
-  +endsAt: DateTime
-  +isActive: boolean
-}
-
-class LoyaltyTransaction {
-  +id: UUID
-  +userId: UUID
   +orderId: UUID
-  +pointsDelta: int
+  +userId: UUID?
+  +method: WALLET | CARD
+  +status: SUCCESS | FAILED
+  +amount: integer
+  +idempotencyKey: String?
+  +requestHash: String?
+  +resultSnapshot: JSON?
   +createdAt: DateTime
+  +updatedAt: DateTime
 }
 
 enum OrderStatus {
   PENDING
-  PAID
   PAYMENT_FAILED
+  PAID
   PREPARING
   READY
   COMPLETED
   CANCELLED
 }
-
-enum PaymentStatus {
-  PROCESSING
-  SUCCEEDED
-  FAILED
-  UNKNOWN
-}
-
-enum PaymentMethod {
-  WALLET
-  CARD
-}
-
-enum ProductSize {
-  S
-  M
-  L
-}
-
-enum DiscountType {
-  PERCENTAGE
-  FIXED_AMOUNT
-}
-
-User "1" -- "0..*" Order : places
-Order "1" *-- "1..*" OrderItem : contains
-Product "1" -- "0..*" OrderItem : selected for
-Order "1" -- "0..*" Payment : payment attempts
-Promotion "0..1" -- "0..*" Order : applied to
-User "1" -- "0..*" LoyaltyTransaction : earns
-Order "1" -- "0..1" LoyaltyTransaction : awards once
-
-note right of Payment
-Same key + same payload replays
-the stored result; changed payload
-with the same key is rejected.
+UserEntity "0..1" -- "0..*" OrderEntity : owns
+OrderEntity "1" *-- "1..*" OrderItemEntity : contains
+OrderEntity "1" -- "0..*" PaymentEntity : has attempts
+UserEntity "0..1" -- "0..*" PaymentEntity : initiates
+ProductCatalogItem "1" .. "0..*" OrderItemEntity : productId/name snapshot
+note right of ProductCatalogItem
+The catalog is defined in ProductsService,
+not persisted as a TypeORM entity.
+OrderItem stores productId and productName;
+there is no database foreign key to this catalog.
 end note
-note bottom of Order
-Successful: PENDING -> PAID -> PREPARING
--> READY -> COMPLETED
-Failure: PENDING -> PAYMENT_FAILED
-Retry: PAYMENT_FAILED -> PENDING
+note bottom of OrderItemEntity
+Size and toppings are order-item snapshots.
+Prices are calculated by OrdersService.
 end note
 @enduml

@@ -1,71 +1,139 @@
 @startuml
-title Task 2.1 - Activity Diagram: Đặt và thanh toán BrewLite
+title Task 2.1 - Activity Diagram: Luồng end-to-end BrewLite
+skinparam shadowing false
+skinparam backgroundColor white
+
 |Khách hàng|
 start
-:Mở ứng dụng BrewLite;
-|Hệ thống BrewLite|
-:Hiển thị danh sách đồ uống;
+:Mở BrewLite;
+|Next.js UI|
+:Gọi GET /products;
+|NestJS API|
+:Trả menu;
+|Next.js UI|
+:Hiển thị menu/chi tiết sản phẩm;
+|Khách hàng|
+:Chọn size, topping và số lượng;
+:Thêm/sửa sản phẩm trong giỏ;
 repeat
   |Khách hàng|
-  :Chọn sản phẩm, size, topping;
-  |Hệ thống BrewLite|
-  :Tính giá theo tùy chọn;
-  |Khách hàng|
-  :Thêm sản phẩm vào giỏ;
-  |Hệ thống BrewLite|
-  :Cập nhật giỏ và tổng tiền;
-repeat while (Mua thêm?) is (Có) not (Không)
-|Khách hàng|
-:Xem giỏ, nhấn Đặt hàng;
-|Hệ thống BrewLite|
-:Kiểm tra giỏ và tổng tiền;
-if (Đã đăng nhập?) then (Không)
+  :Nhập mã khuyến mãi hoặc bỏ qua;
+  |Next.js UI|
+  :Gửi mã khuyến mãi (nếu có);
+  |NestJS API|
+  :Validate DTO, JWT, sản phẩm và giá;
+  if (Có mã?) then (Có)
+    :Kiểm tra hiệu lực và điều kiện mã;
+    if (Mã hợp lệ?) then (Có)
+      :Tính tổng sau giảm;
+    else (Không)
+      |Next.js UI|
+      :Thông báo mã sai hoặc hết hạn;
+      |Khách hàng|
+      :Sửa mã hoặc bỏ mã;
+    endif
+  else (Không)
+    :Tính tổng không giảm;
+  endif
+repeat while (Mã không hợp lệ và chưa bỏ/sửa?) is (Có) not (Không)
+
+if (Đã đăng nhập?) then (Có)
+else (Chưa)
   repeat
+    |Next.js UI|
+    :Yêu cầu đăng nhập/đăng ký;
     |Khách hàng|
-    :Đăng nhập / đăng ký;
-    |Hệ thống BrewLite|
-    :Xác thực và cấp JWT;
-  repeat while (Xác thực hợp lệ?) is (Không) not (Có)
-else (Có)
+    :Gửi thông tin đăng nhập;
+    |NestJS API|
+    :Xác thực thông tin;
+    if (Thông tin hợp lệ?) then (Có)
+      :Cấp JWT;
+      |Next.js UI|
+      :Tiếp tục checkout với JWT;
+    else (Không)
+      |Next.js UI|
+      :Thông báo đăng nhập thất bại;
+      |Khách hàng|
+      if (Thử đăng nhập lại?) then (Có)
+      else (Không)
+        stop
+      endif
+    endif
+  repeat while (Đăng nhập thất bại?) is (Có) not (Không)
 endif
-:Kiểm tra giá, khuyến mãi (nếu có);
+
 repeat
-  :Kiểm tra tồn kho trong transaction;
-  if (Đủ hàng?) then (Có)
-    :Tạo đơn PENDING;
+  |Next.js UI|
+  :Gửi giỏ và mã hợp lệ (nếu có);
+  |NestJS API|
+  :Validate lại yêu cầu và tính giá tin cậy;
+  |Database|
+  :BEGIN transaction tạo đơn;
+  :Kiểm tra tồn kho và version;
+  if (Đủ tồn?) then (Có)
+    :Tạo Order PENDING và OrderItems;
     :Cập nhật tồn kho;
+    :COMMIT;
   else (Không)
-    :Báo hết hàng; không tạo đơn;
+    :ROLLBACK;
+    |Next.js UI|
+    :Báo mặt hàng/số lượng không đủ; giữ giỏ;
     |Khách hàng|
-    :Điều chỉnh giỏ hàng;
-    |Hệ thống BrewLite|
-    :Kiểm tra lại giá / khuyến mãi;
+    if (Điều chỉnh và thử lại?) then (Có)
+      :Điều chỉnh giỏ;
+    else (Không)
+      stop
+    endif
   endif
-repeat while (Đủ hàng?) is (Không) not (Có)
-|Khách hàng|
-:Chọn Ví / Thẻ và xác nhận;
+repeat while (Hết hàng và khách đã điều chỉnh?) is (Có) not (Không)
+
 repeat
-  |Hệ thống BrewLite|
-  :Gửi yêu cầu thanh toán\n(Idempotency-Key);
-  |Mock Payment Service|
-  :Xử lý thanh toán mô phỏng;
-  if (Thanh toán thành công?) then (Có)
-    |Hệ thống BrewLite|
-    :Cập nhật PAID; cộng điểm thưởng một lần;
-    |Khách hàng|
-    :Hiển thị mã đơn và xác nhận;
-    |Hệ thống BrewLite|
-    :Hiển thị trạng thái, lịch sử đơn;
-    |Khách hàng|
-    stop
-  else (Không)
-    |Hệ thống BrewLite|
-    :Cập nhật PAYMENT_FAILED; giữ giỏ;
+  |Khách hàng|
+  :Chọn Ví hoặc Thẻ và xác nhận;
+  |Next.js UI|
+  :Gửi POST /payments với Idempotency-Key;
+  |NestJS API|
+  :Kiểm tra quyền sở hữu, trạng thái và key/payload;
+  if (Key đã xử lý?) then (Có)
+    :Trả kết quả đã lưu;
+  else (Key mới)
+    |Mock Payment Service|
+    :Mô phỏng kết quả thanh toán;
+    if (Thành công?) then (Có)
+      |Database|
+      :BEGIN transaction ghi kết quả;
+      :Ghi Payment SUCCESS; chuyển Order sang PAID;
+      :Ghi Loyalty một lần;
+      :COMMIT;
+    else (Không)
+      |Database|
+      :BEGIN transaction ghi kết quả;
+      :Ghi Payment FAILED; chuyển Order sang PAYMENT_FAILED;
+      :COMMIT;
+    endif
   endif
-repeat while (Thử lại?) is (Có - key mới) not (Không)
+  |NestJS API|
+  if (Kết quả cuối là PAID?) then (Có)
+    |Next.js UI|
+    :Hiển thị xác nhận và mã đơn;
+    :Xóa giỏ;
+  else (Không)
+    |Next.js UI|
+    :Thông báo thanh toán thất bại; giữ giỏ;
+    |Khách hàng|
+    if (Thử lại trên cùng đơn?) then (Có)
+      :Tạo yêu cầu mới với key mới;
+    else (Không)
+    endif
+  endif
+repeat while (Thất bại đã xác nhận và khách chọn thử lại?) is (Có) not (Không)
+
+|Khách hàng|
+:Xem trạng thái/lịch sử đơn;
 stop
 note right
-  Retry sau PAYMENT_FAILED dùng key mới.
-  Cùng key + cùng payload trả kết quả cũ.
+Retry mạng cùng thao tác dùng lại key cũ.
+Chỉ lần thanh toán mới sau thất bại đã xác nhận
+mới dùng key mới trên cùng đơn.
 end note
 @enduml
