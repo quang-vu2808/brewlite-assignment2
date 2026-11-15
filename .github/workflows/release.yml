@@ -70,7 +70,7 @@ jobs:
     if: vars.PROD_DEPLOY_ENABLED == 'true'
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 65
     environment: production
     permissions:
       contents: read
@@ -125,6 +125,7 @@ jobs:
           name: rollback-${{ github.run_attempt }}
           path: rollback.json
       - name: Run migrations from the candidate image
+        timeout-minutes: 8
         env:
           GHCR_TOKEN: ${{ github.token }}
           RELEASE_IMAGE: ${{ needs.publish.outputs.api }}
@@ -143,20 +144,23 @@ jobs:
           docker run --rm --platform linux/amd64 \
             -e DB_HOST -e DB_PORT -e DB_NAME -e DB_USER -e DB_PASSWORD -e DB_SSL -e DB_MIGRATIONS_RUN \
             "$RELEASE_IMAGE" node dist/database/migrate.js
-      - name: Deploy API digest
+      - name: Deploy API and Web, smoke test and recover on failure
+        id: rollout
         env:
+          GHCR_TOKEN: ${{ github.token }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ vars.RENDER_API_SERVICE_ID }}
-          RELEASE_IMAGE: ${{ needs.publish.outputs.api }}
-        run: node deploy/render.mjs
-      - name: Deploy Web digest
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ vars.RENDER_WEB_SERVICE_ID }}
-          RELEASE_IMAGE: ${{ needs.publish.outputs.web }}
-        run: node deploy/render.mjs
-      - name: Verify HTTPS release
-        run: node deploy/smoke.mjs
+          API_SERVICE: ${{ vars.RENDER_API_SERVICE_ID }}
+          WEB_SERVICE: ${{ vars.RENDER_WEB_SERVICE_ID }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          node deploy/release.mjs
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.rollout.outcome != 'skipped' && steps.rollout.outcome != ''
+        with:
+          name: rollout-result-${{ github.run_attempt }}
+          path: rollout-result.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: stable-${{ github.run_attempt }}

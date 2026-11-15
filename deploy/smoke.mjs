@@ -1,9 +1,9 @@
 import { pathToFileURL } from "node:url";
 
-export async function smoke({ api, web, revision }) {
+export async function smoke({ api, web, revision, signal }) {
   const get = async (url, headers = {}) => {
     const response = await fetch(url, {
-      headers, redirect: "error", signal: AbortSignal.timeout(15_000),
+      headers, redirect: "error", signal: AbortSignal.any([AbortSignal.timeout(15_000), ...(signal ? [signal] : [])]),
     });
     if (!response.ok) throw new Error(`Smoke received HTTP ${response.status}`);
     return response;
@@ -42,23 +42,28 @@ export async function smoke({ api, web, revision }) {
   throw new Error("Expected API URL missing from Web JavaScript");
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const api = process.env.PROD_API_URL;
-  const web = process.env.PROD_WEB_URL;
-  const revision = process.env.RELEASE_REVISION;
+export async function verifyRelease({ api, web, revision }) {
   const httpsOrigin = (value) => /^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(value ?? "");
   if (!httpsOrigin(api) || !httpsOrigin(web) || api === web || !/^[0-9a-f]{40}-\d+-\d+$/.test(revision ?? "")) {
     throw new Error("Expected distinct Render HTTPS origins and release revision");
   }
-  const deadline = Date.now() + 300_000;
-  for (;;) {
+  const signal = AbortSignal.timeout(300_000);
+  while (!signal.aborted) {
     try {
-      await smoke({ api, web, revision });
-      console.log("HTTPS release smoke passed");
-      break;
+      await smoke({ api, web, revision, signal });
+      return;
     } catch {
-      if (Date.now() >= deadline) throw new Error("HTTPS release smoke timed out");
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      if (!signal.aborted) await new Promise((resolve) => setTimeout(resolve, 5000));
     }
   }
+  throw new Error("HTTPS release smoke timed out");
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await verifyRelease({
+    api: process.env.PROD_API_URL,
+    web: process.env.PROD_WEB_URL,
+    revision: process.env.RELEASE_REVISION,
+  });
+  console.log("HTTPS release smoke passed");
 }
