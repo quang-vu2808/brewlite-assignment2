@@ -1,103 +1,86 @@
 @startuml
-title BrewLite - Sequence Diagram: Dat hang va thanh toan (UC-18)
+title Task 2.2 - Sequence Diagram: UC-18 Checkout, stock and idempotent payment
+autonumber
 hide footbox
 skinparam shadowing false
 skinparam backgroundColor white
-skinparam defaultFontSize 16
-skinparam sequence {
-  ArrowColor #42546B
-  LifeLineBorderColor #8493A5
-  LifeLineBackgroundColor #F8FAFC
-  ParticipantBorderColor #42546B
-  ParticipantBackgroundColor #EAF0F6
-  ParticipantFontName Arial
-  ParticipantFontSize 16
-  ActorBorderColor #42546B
-  ActorFontName Arial
-  GroupBorderColor #8091A5
-  GroupHeaderBackgroundColor #EAF0F6
-  BoxBorderColor #B7C4D1
-  BoxBackgroundColor #F8FAFC
-  FontName Arial
-  MessageFontSize 16
-}
-
 actor Customer
 participant "Next.js UI" as UI
 participant "NestJS API" as API
 database "PostgreSQL" as DB
 participant "Mock Payment Service" as Pay
 
-Customer -> UI: Xac nhan gio hang
-UI -> API: POST /orders\nAuthorization: Bearer JWT\n(cart items, promotion?)
+Customer -> UI: Confirm cart; optional promotion code
+opt Customer needs to sign in
+  UI -> API: POST /auth/login or /auth/register
+  API --> UI: User profile + JWT
+end
+UI -> API: POST /orders\nBearer JWT, items, promotionCode?
 activate API
-API -> API: Validate JWT, quyen va payload
-API -> API: Tinh lai gia tu du lieu tin cay
-alt Gio hang khong hop le
-  API --> UI: 400 Validation error
-  UI --> Customer: Hien thi loi, giu gio hang
-else JWT thieu / sai / het han
-  API --> UI: 401 Unauthorized
-  UI --> Customer: Yeu cau dang nhap, giu gio
-else Hop le
-  opt Ma khuyen mai duoc nhap
-    API -> DB: Kiem tra hieu luc va dieu kien promotion
-    DB --> API: Promotion va muc giam hop le
-  end
-  group Transaction tao don + cap nhat ton kho
+API -> API: Verify JWT; validate DTO and options
+API -> API: Recalculate prices from trusted product data
+opt Promotion code entered
+  API -> DB: Read promotion and validate conditions
+  DB --> API: Valid/invalid result
+  API -> API: Calculate final total
+end
+alt Invalid request or JWT
+  API --> UI: 400 validation / 401 unauthorized
+  UI --> Customer: Show error; keep cart
+else Valid request
+  group Transaction 1: create order and reserve inventory
     API -> DB: BEGIN
-    API -> DB: Kiem tra ton kho, optimistic lock
-    alt Het hang / xung dot
-      DB --> API: Khong du ton kho
+    API -> DB: Read stock and version
+    alt Out of stock or version conflict
       API -> DB: ROLLBACK
-      API --> UI: 409 Inventory conflict
-      UI --> Customer: Bao mat hang, giu gio de sua
-    else Con du ton kho
-      API -> DB: INSERT Order(PENDING), OrderItems\nva cap nhat ton kho
+      API --> UI: 409 inventory conflict
+      UI --> Customer: Show unavailable item; keep cart
+    else Stock is sufficient
+      API -> DB: INSERT Order(PENDING) and OrderItems
+      API -> DB: UPDATE/reserve stock with optimistic version check
       API -> DB: COMMIT
-      DB --> API: orderId, total
-      API --> UI: 201 Created (orderId, total, PENDING)
-      UI --> Customer: Hien thi tong tien va chon Vi/The
-      Customer -> UI: Xac nhan thanh toan
-      UI -> API: POST /payments\nJWT, orderId, method, amount\nIdempotency-Key
-      API -> API: Xac thuc JWT, quyen so huu,\ntrang thai, amount va method
-      alt Key da co, cung payload
-        API -> DB: Tim Idempotency-Key va ket qua
-        DB --> API: Ket qua da ghi
-        API --> UI: Tra lai ket qua cu\n(khong goi mock lan nua)
-      else Key da co, payload khac
-        API --> UI: 409 Idempotency conflict
-      else Key moi
-        API -> DB: Luu key + payload hash (processing)
-        DB --> API: Da ghi nhan key
-        API -> Pay: Mo phong thanh toan\n(khong giu DB transaction)
-        alt Thanh toan thanh cong
-          Pay --> API: Success + mock transactionId
-          group Ghi nhan ket qua idempotent
-            API -> DB: BEGIN
-            API -> DB: Luu Payment thanh cong;\nOrder PENDING -> PAID
-            API -> DB: Ghi Loyalty toi da mot lan/order
-            API -> DB: COMMIT
-          end
-          DB --> API: PAID, payment result
-          API --> UI: 200 OK (PAID, orderId)
-        else Thanh toan that bai
-          Pay --> API: Failure + reason
-          API -> DB: Luu Payment that bai;\nOrder PENDING -> PAYMENT_FAILED
-          DB --> API: PAYMENT_FAILED
-          API --> UI: 402 Payment failed
-        else Timeout / ket qua chua ro
-          Pay --> API: Timeout / unknown
-          API -> DB: Giu key o trang thai can doi soat
-          API --> UI: 202 Dang xac minh\n(tiep tuc dung cung key)
-        end
+      DB --> API: orderId, item snapshots, total
+      API --> UI: 201 Created
+      UI --> Customer: Show order and payment options
+    end
+  end
+end
+
+opt Order creation succeeded; customer starts payment
+  Customer -> UI: Choose Wallet/Card and confirm
+  UI -> API: POST /payments\nBearer JWT, orderId, method\nIdempotency-Key
+  API -> DB: Find prior key; verify user/order/state
+  alt Same key and same payload
+    DB --> API: Stored result
+    API --> UI: Return prior outcome; no duplicate work
+  else Same key and different payload
+    API --> UI: 409 conflict
+  else New key
+    API -> Pay: Process simulated payment outside DB transaction
+    alt Payment SUCCESS
+      Pay --> API: SUCCESS
+      group Transaction 2: record payment result
+        API -> DB: BEGIN
+        API -> DB: INSERT Payment; transition Order to PAID
+        API -> DB: INSERT LoyaltyTransaction once per order
+        API -> DB: COMMIT
       end
-      alt PAID (ke ca replay ket qua thanh cong)
-        UI --> Customer: Xac nhan ma don, tong tien, PAID
-        UI -> UI: Xoa gio hang
-      else That bai / dang xac minh
-        UI --> Customer: Hien thi loi/trang thai, giu gio hang
+      API --> UI: 200 result (PAID, orderId)
+      UI --> Customer: Show confirmation
+      UI -> UI: Clear cart
+    else Payment FAILED
+      Pay --> API: FAILED
+      group Transaction 2: record payment result
+        API -> DB: BEGIN
+        API -> DB: INSERT Payment; transition Order to PAYMENT_FAILED
+        API -> DB: COMMIT
       end
+      API --> UI: 200 failure outcome
+      UI --> Customer: Show failure; keep cart
+      note over Customer,UI
+      Retry confirmed failure with a new key on the same order.
+      Replay of the same request reuses its original key.
+      end note
     end
   end
 end

@@ -1,59 +1,72 @@
 @startuml
-' BrewLite Task 1.2 - source converted from use-case.drawio
+title Task 1.2 - Use Case Diagram: BrewLite
 left to right direction
 skinparam shadowing false
 skinparam packageStyle rectangle
-skinparam linetype ortho
 skinparam defaultFontName Arial
-skinparam usecase {
- BackgroundColor White
- BorderColor #42546B
- ArrowColor #42546B
-}
+
 actor "Khách hàng\n(ST-01)" as Customer
-actor "Mock Payment Service\n(ST-06)" as Payment
-actor "Nhân viên quầy\n(ST-02, mở rộng)" as Barista
-actor "Quản lý / PO\n(ST-03, mở rộng)" as Manager
-rectangle "BrewLite – System Boundary" {
+actor "Dịch vụ thanh toán\ngiả lập (ST-06)" as Payment
+actor "Nhân viên quầy\n(ST-02)" as Barista
+actor "Quản lý / PO\n(ST-03)" as Manager
+
+rectangle "BrewLite System" {
   package "Xem và chọn sản phẩm" {
-    usecase "UC-01\nXem menu" as UC01
-    usecase "UC-02\nChi tiết / size, topping" as UC02
-    usecase "UC-03\nGiỏ hàng / tổng tiền" as UC03
+    usecase "UC-01\nXem menu (FR-01)" as UC01
+    usecase "UC-02\nChi tiết, size, topping\n(FR-02, FR-03)" as UC02
+    usecase "UC-03\nGiỏ hàng và tổng tiền\n(FR-04–FR-06)" as UC03
   }
-  package "Tài khoản / Đặt và thanh toán" {
-    usecase "UC-04\nĐăng ký" as UC04
-    usecase "UC-05\nĐăng nhập" as UC05
-    usecase "UC-06\nĐặt đơn" as UC06
-    usecase "UC-07\nThanh toán mô phỏng" as UC07
-    usecase "UC-08\nXác nhận đơn" as UC08
-    usecase "UC-09\nTrạng thái / lịch sử" as UC09
+  package "Tài khoản và đặt hàng" {
+    usecase "UC-04\nĐăng ký (FR-07)" as UC04
+    usecase "UC-05\nĐăng nhập/JWT (FR-08)" as UC05
+    usecase "UC-06\nĐặt đơn (FR-09)" as UC06
+    usecase "UC-07\nThanh toán mô phỏng\n(FR-10, FR-11)" as UC07
+    usecase "UC-08\nNhận xác nhận (FR-12)" as UC08
+    usecase "UC-09\nTrạng thái/lịch sử\n(FR-13, FR-14)" as UC09
   }
   package "Nghiệp vụ hỗ trợ" {
     usecase "UC-10\nState Machine (FR-15)" as UC10
-    usecase "UC-11\nÁp dụng khuyến mãi (FR-18)" as UC11
-    usecase "UC-12\nGhi điểm Loyalty (FR-19)" as UC12
-    usecase "UC-16\nKiểm tra tồn kho (FR-17)" as UC16
-    usecase "UC-17\nIdempotency (FR-16)" as UC17
+    usecase "UC-11\nÁp dụng khuyến mãi\n(FR-18)" as UC11
+    usecase "UC-12\nGhi điểm Loyalty\n(FR-19)" as UC12
+    usecase "UC-16\nKiểm tra tồn kho\n(FR-17)" as UC16
+    usecase "UC-17\nIdempotency thanh toán\n(FR-16)" as UC17
   }
-  package "Mở rộng – Could" #FFF5D9 {
-    usecase "UC-13\nGiao diện Barista (FR-20)" as UC13
+  package "Mở rộng - Could" #FFF5D9 {
+    usecase "UC-13\nGiao diện nhân viên\n(FR-20)" as UC13
     usecase "UC-14\nQuản lý menu (FR-21)" as UC14
-    usecase "UC-15\nThông báo chủ động (FR-22)" as UC15
+    usecase "UC-15\nThông báo chủ động\n(FR-22)" as UC15
   }
 }
+
 Customer -- UC01
+Customer -- UC02
+Customer -- UC03
 Customer -- UC04
+Customer -- UC05
 Customer -- UC06
 Customer -- UC07
+Customer -- UC08
 Customer -- UC09
+Customer -- UC11
+Customer -- UC15
+Customer -- UC12 : nhận điểm thưởng
 Payment -- UC07
 Barista -- UC13
 Manager -- UC14
 UC06 ..> UC16 : <<include>>
+UC06 ..> UC10 : <<include>>
 UC07 ..> UC17 : <<include>>
-UC11 ..> UC03 : <<extend>>\n[khách nhập mã]
-note bottom of UC09
-UC-18 là Use Case trọng tâm tổng hợp của Task 1.3;
-không tạo oval trùng trên sơ đồ tổng quát.
+UC07 ..> UC10 : <<include>>
+UC11 ..> UC03 : <<extend>>\n[khi khách nhập mã]
+UC12 ..> UC07 : <<extend>>\n[khi thanh toán thành công]
+
+note bottom of UC10
+Use case nội bộ được gọi khi đặt đơn hoặc xử lý thanh toán;
+không phải thao tác độc lập của actor.
+UC-18 tổng hợp UC-06 và UC-07, đặc tả riêng ở Task 1.3.
+end note
+note bottom of UC15
+UC-13–UC-15 là phạm vi mở rộng Could.
+UC-23–UC-24 (tiền thật/giao hàng) nằm ngoài phạm vi.
 end note
 @enduml

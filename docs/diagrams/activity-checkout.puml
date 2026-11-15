@@ -1,8 +1,7 @@
 @startuml
-title BrewLite - Activity Diagram: Dat hang va thanh toan (UC-18)
+title Task 2.1 - Activity Diagram: UC-18 Checkout
 skinparam shadowing false
 skinparam backgroundColor white
-skinparam defaultFontSize 16
 skinparam activity {
   BackgroundColor #F8FAFC
   BorderColor #42546B
@@ -15,98 +14,127 @@ skinparam activity {
 
 |Customer|
 start
-:Mo gio hang;
-:Xac nhan gio hang;
-
-|Next.js UI|
-:Gui yeu cau checkout;
-
-|NestJS API|
-:Validate gio hang va tinh lai gia;
-if (Gio hang hop le?) then (Co)
-else (Khong)
-  :Tra loi loi validation;
-  |Next.js UI|
-  :Hien thi loi, giu gio hang;
-  stop
-endif
-
-|Customer|
-:Nhap ma khuyen mai neu co;
-|NestJS API|
-:Kiem tra ma va tinh lai tong neu hop le;
-
-|NestJS API|
-if (JWT hop le?) then (Co)
-else (Khong)
-  |Next.js UI|
-  :Yeu cau dang nhap;
+:Review cart;
+repeat
   |Customer|
-  if (Dang nhap thanh cong?) then (Co)
+  :Enter promotion code or skip;
+  |Next.js UI|
+  :Submit optional promotion code;
+  |NestJS API|
+  :Validate promotion and eligibility;
+  if (No code or valid code?) then (yes)
+    :Calculate trusted total;
+  else (invalid)
     |Next.js UI|
-    :Gui lai checkout voi JWT moi;
-    |NestJS API|
-  else (Huy / that bai)
-    :Dung checkout, khong tao don;
-    stop
+    :Show invalid/expired code;
+    |Customer|
+    :Correct code or remove it;
   endif
+repeat while (Invalid code not corrected or removed?) is (yes) not (no)
+
+if (JWT session valid?) then (yes)
+else (no)
+  repeat
+    |Next.js UI|
+    :Request register/login;
+    |Customer|
+    :Submit credentials;
+    |NestJS API|
+    :Verify credentials;
+    if (Credentials valid?) then (yes)
+      :Issue JWT;
+      |Next.js UI|
+      :Resume checkout;
+    else (no)
+      |Next.js UI|
+      :Show login error;
+      |Customer|
+      if (Retry login?) then (yes)
+      else (no)
+        stop
+      endif
+    endif
+  repeat while (Login failed?) is (yes) not (no)
 endif
 
+repeat
+|Next.js UI|
+:Submit cart and valid optional promotion code;
 |NestJS API|
-:Bat dau transaction tao don;
-|Database|
-:Kiem tra ton kho va optimistic lock;
-if (Con du ton kho?) then (Co)
-  |Database|
-  :Tao Order PENDING va OrderItems;
-  :Cap nhat ton kho trong transaction;
-  :Commit transaction;
-else (Khong)
-  |Database|
-  :Rollback transaction;
+:Validate JWT, DTO, product/options; recalculate trusted prices;
+if (Cart valid?) then (yes)
+else (no)
+  :Return validation error;
   |Next.js UI|
-  :Thong bao het hang, giu gio de dieu chinh;
+  :Show error; retain cart;
   stop
 endif
-
-|Customer|
-:Chon Vi hoac The mo phong;
-:Xac nhan thanh toan;
-
-|Next.js UI|
-:Gui payment request va Idempotency-Key;
-
-|NestJS API|
-:Xac thuc quyen so huu don,\ntrang thai va payload;
-if (Key da duoc xu ly?) then (Co)
-  if (Payload trung khop?) then (Co)
-    :Tra lai ket qua da ghi;
-  else (Khong)
-    :Tu choi xung dot key/payload;
-    |Next.js UI|
-    :Hien thi loi xung dot;
+|Database|
+:BEGIN order transaction;
+:Check inventory and optimistic version;
+if (Enough stock?) then (yes)
+  :Save Order(PENDING) and OrderItems;
+  :Update/reserve stock;
+  :COMMIT;
+else (no)
+  :ROLLBACK;
+  |Next.js UI|
+  :Report unavailable quantity; retain cart;
+  |Customer|
+  if (Adjust cart and retry?) then (yes)
+    :Adjust cart;
+  else (no)
     stop
   endif
-else (Chua)
-  :Ghi nhan key dang xu ly;
-  |Mock Payment Service|
-  :Mo phong thanh toan;
-  if (Ket qua thanh toan?) then (Thanh cong)
-    |NestJS API|
-    :Ghi Payment va chuyen Order sang PAID;
-    :Ghi Loyalty idempotent;
-  else (That bai)
-    |NestJS API|
-    :Ghi Payment that bai;\nchuyen Order sang PAYMENT_FAILED;
-  endif
 endif
+repeat while (Out of stock and cart adjusted?) is (yes) not (no)
 
-|Next.js UI|
-if (Trang thai cuoi?) then (PAID)
-  :Thong bao thanh cong va ma don;
-  :Xoa gio hang;
-else (That bai)
-  :Thong bao loi, giu gio hang;
-endif
+repeat
+  |Customer|
+  :Choose Wallet or Card; confirm payment;
+  |Next.js UI|
+  :POST /payments with Idempotency-Key;
+  |NestJS API|
+  :Check order owner, amount, status and request key;
+  if (Same key already handled?) then (yes)
+    :Return stored result;
+  else (new key)
+    |Mock Payment Service|
+    :Process simulated payment;
+    if (Payment succeeds?) then (yes)
+      |Database|
+      :BEGIN result transaction;
+      :Save Payment SUCCESS; transition Order to PAID;
+      :Record Loyalty once per order;
+      :COMMIT;
+    else (no)
+      |Database|
+      :BEGIN result transaction;
+      :Save Payment FAILED; transition Order to PAYMENT_FAILED;
+      :COMMIT;
+    endif
+  endif
+  |NestJS API|
+  if (Final result is PAID?) then (yes)
+    |Next.js UI|
+    :Show order confirmation;
+    :Clear cart;
+  else (no)
+    |Next.js UI|
+    :Show failure; keep cart;
+    |Customer|
+    if (Retry same order?) then (yes)
+      :Use a new key for the new attempt;
+    else (no)
+    endif
+  endif
+repeat while (Confirmed failure and customer retries?) is (yes) not (no)
+
+|Customer|
+:View order status/history;
 stop
+note right
+A network replay of the same request reuses the same key.
+A new attempt after a confirmed failure uses a new key.
+end note
 @enduml
